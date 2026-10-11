@@ -46,9 +46,14 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
 <div class="flex items-center gap-3 mb-8"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">Heavy Fast System</div></div></div>
 <nav id="sideNav" class="space-y-1.5 flex-1"></nav>
-<div class="pt-4 border-t text-[10px] text-slate-400 flex justify-between items-center">
-  <div>✅ Connected: wihnucldbbnihuuklbww<br>Fast Mode ON</div>
-  <button onclick="handleLogout()" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold">Logout</button>
+
+<!-- SIDEBAR GEMINI BUTTON AT THE VERY BOTTOM -->
+<div class="pt-4 border-t space-y-3">
+  <button onclick="window.open('https://gemini.google.com/','_blank')" style="background:linear-gradient(90deg,#8e2de2,#4a00e0);color:white;padding:10px;width:100%;border-radius:8px;border:none;cursor:pointer">✨ Open in Gemini</button>
+  <div class="text-[10px] text-slate-400 flex justify-between items-center">
+    <div>✅ Connected<br>Fast Mode ON</div>
+    <button onclick="handleLogout()" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold">Logout</button>
+  </div>
 </div>
 </aside>
 <main class="flex-1 p-3 md:p-7 overflow-auto w-full">
@@ -58,9 +63,9 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 </main></div>
 
 <script>
-const SUPA_URL = "https://wihnucldbhnihuuklbww.supabase.co";
-const SUPA_KEY = "sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm";
-const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let isSignUpMode = false;
 
 function toggleAuthMode() {
