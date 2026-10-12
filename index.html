@@ -633,7 +633,8 @@ function cancelItem(){EDIT_ITEM_ID=null;['iName','iPur','iSale','iStock','iCat']
 async function saveItem(){let n=document.getElementById('iName').value;if(!n)return alert('Name');let payload={name:n,company_id:document.getElementById('iComp').value||null,purchase_cost:Number(document.getElementById('iPur').value||0),sale_price:Number(document.getElementById('iSale').value||0),sale_cost:Number(document.getElementById('iSale').value||0),current_stock:Number(document.getElementById('iStock').value||0)};if(EDIT_ITEM_ID){let {error}=await supa.from('items').update(payload).eq('id',EDIT_ITEM_ID);if(error){alert(error.message);return;}cancelItem();loadAll();return;}let {error}=await supa.from('items').insert([payload]);if(error){alert(error.message);return;}loadAll();}
 async function delItem(id){if(!confirm('Delete?'))return;await supa.from('items').delete().eq('id',id);loadAll();}
 
-renderSide();
-checkSession();
+  renderSide();
+document.getElementById('authModal').classList.add('hidden');
+loadAll();
 setInterval(()=>{document.querySelectorAll('a[href*="netlify"]').forEach(e=>e.remove());},1000);
 </script></body></html>
