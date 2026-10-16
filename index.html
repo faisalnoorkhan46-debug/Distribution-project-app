@@ -126,6 +126,18 @@ function renderView(){
   if(curTab==='dash'){
     let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
+    
+    // Total Customer Receivable Balance
+    let totalCustRecv = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
+
+    // Mode-wise collection breakdown
+    let modeTotals = { Cash: 0, Bank: 0, EasyPaisa: 0, JazzCash: 0, Others: 0 };
+    DATA.cust_ledgers.filter(l => l.type === 'payment').forEach(l => {
+      let m = l.payment_mode || 'Cash';
+      if(modeTotals[m] !== undefined) modeTotals[m] += Number(l.credit || 0);
+      else modeTotals['Others'] += Number(l.credit || 0);
+    });
+
     let billsList = DATA.bills.slice(0,5).map(function(b){
       let cName = (b.customers && b.customers.name) ? b.customers.name : '-';
       return '<div class="flex justify-between p-2.5 bg-slate-50 rounded-xl text-sm"><span class="font-mono">'+b.invoice_no+'</span><span>'+cName+'</span><b>Rs '+Number(b.total_amount||0).toLocaleString()+'</b></div>';
@@ -140,9 +152,16 @@ function renderView(){
     v.innerHTML='<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">'+
       '<div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase">Total Sale</div><div class="text-2xl font-bold">Rs '+total.toLocaleString()+'</div></div>'+
       '<div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500">Today Sale</div><div class="text-2xl font-bold">Rs '+today.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors</div><div class="text-2xl font-bold">'+DATA.companies.length+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-orange-500"><div class="text-[11px]">Customers / Items</div><div class="text-2xl font-bold">'+DATA.customers.length+' / '+DATA.items.length+'</div></div>'+
+      '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div></div>'+
+      '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Items</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.items.length+'</div></div>'+
     '</div>'+
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections by Mode (Wasooli Breakdown)</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Cash</div><div class="text-lg font-bold text-green-600">Rs '+modeTotals.Cash.toLocaleString()+'</div></div>'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Bank</div><div class="text-lg font-bold text-blue-600">Rs '+modeTotals.Bank.toLocaleString()+'</div></div>'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">EasyPaisa</div><div class="text-lg font-bold text-emerald-600">Rs '+modeTotals.EasyPaisa.toLocaleString()+'</div></div>'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">JazzCash</div><div class="text-lg font-bold text-orange-600">Rs '+modeTotals.JazzCash.toLocaleString()+'</div></div>'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Others</div><div class="text-lg font-bold text-purple-600">Rs '+modeTotals.Others.toLocaleString()+'</div></div>'+
+    '</div></div>'+
     '<div class="grid lg:grid-cols-3 gap-4">'+
       '<div class="card p-5 lg:col-span-2"><h3 class="font-bold mb-3">Recent Bills</h3><div class="space-y-2">'+billsList+'</div></div>'+
       '<div class="card p-5"><h3 class="font-bold mb-3">Top Vendors</h3>'+vendorsList+'</div>'+
@@ -237,11 +256,20 @@ function renderView(){
 
     let ledgerRows = rows.map(r => {
       let badgeCls = r.type === 'sale' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
-      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
+      let modeText = r.payment_mode ? '<span class="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded ml-1 text-slate-600">'+r.payment_mode+'</span>' : '';
+      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span>'+modeText+'</td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Customer Khata</h3><div class="text-sm">Balance Receivable: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'cust\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div><div class="grid md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl mt-4"><input id="clDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'"><select id="clType" class="input"><option value="payment">Payment Received (Wasooli)</option><option value="sale">Sale Invoice</option></select><input id="clBill" class="input" placeholder="Ref / Bill No"><input id="clAmt" type="number" class="input" placeholder="Amount"><input id="clDesc" class="input" placeholder="Note"></div><button onclick="addCustLed()" class="btn-dark mt-3">Add Ledger Entry</button></div>'+
-    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type</th><th class="p-2.5">Ref</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit (Sale)</th><th class="p-2.5">Credit (Paid)</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
+    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Customer Khata</h3><div class="text-sm">Balance Receivable: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'cust\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>'+
+    '<div class="grid md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-xl mt-4">'+
+      '<input id="clDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'">'+
+      '<select id="clType" class="input" onchange="toggleClMode(this)"><option value="payment">Payment (Wasooli)</option><option value="sale">Sale Invoice</option></select>'+
+      '<select id="clMode" class="input"><option value="Cash">Cash</option><option value="Bank">Bank</option><option value="EasyPaisa">EasyPaisa</option><option value="JazzCash">JazzCash</option><option value="Others">Others</option></select>'+
+      '<input id="clBill" class="input" placeholder="Ref / Bill No">'+
+      '<input id="clAmt" type="number" class="input" placeholder="Amount">'+
+      '<input id="clDesc" class="input" placeholder="Note">'+
+    '</div><button onclick="addCustLed()" class="btn-dark mt-3">Add Ledger Entry</button></div>'+
+    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Mode</th><th class="p-2.5">Ref</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit (Sale)</th><th class="p-2.5">Credit (Paid)</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
     return;
   }
 
@@ -359,6 +387,11 @@ function renderView(){
   }
 }
 
+function toggleClMode(sel){
+  let modeEl = document.getElementById('clMode');
+  if(modeEl) modeEl.style.display = sel.value === 'payment' ? 'block' : 'none';
+}
+
 function openCustLedger(id){
   CUR_CUSTOMER = id;
   curTab = 'cust_ledger';
@@ -370,10 +403,12 @@ async function addCustLed(){
   let amt = Number(document.getElementById('clAmt').value || 0);
   if(!amt) return alert('Amount darj karein!');
   let type = document.getElementById('clType').value;
+  let mode = document.getElementById('clMode').value;
   let payload = {
     customer_id: CUR_CUSTOMER,
     date: document.getElementById('clDate').value,
     type: type,
+    payment_mode: type === 'payment' ? mode : 'Cash',
     bill_no: document.getElementById('clBill').value,
     description: document.getElementById('clDesc').value,
     debit: type === 'sale' ? amt : 0,
@@ -608,6 +643,7 @@ async function saveFinalBill(){
     customer_id: totals.custId,
     date: new Date().toISOString().split('T')[0],
     type: 'sale',
+    payment_mode: 'Cash',
     bill_no: invNo,
     description: 'Sale Bill Total: Rs ' + totals.grandTotal,
     debit: totals.grandTotal,
