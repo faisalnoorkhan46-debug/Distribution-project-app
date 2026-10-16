@@ -37,8 +37,8 @@ const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[]};
-let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null;
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[]};
+let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
 const TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
@@ -46,6 +46,7 @@ const TABS=[
   {id:'purchase',label:'New Purchase',icon:'🛒'},
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
+  {id:'banks',label:'Banks & Accounts',icon:'🏦'},
   {id:'item',label:'Items',icon:'📦'},
   {id:'company',label:'Vendors',icon:'🏢'}
 ];
@@ -85,6 +86,7 @@ async function safeLoad(table){
     else if(table==='companies') res = await supa.from('companies').select('*').order('name');
     else if(table==='vendor_ledgers') res = await supa.from('vendor_ledgers').select('*').order('entry_date',{ascending:true});
     else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').order('date',{ascending:true});
+    else if(table==='banks') res = await supa.from('banks').select('*').order('name');
     else if(table==='customers') res = await supa.from('customers').select('*').order('name');
     else res = await supa.from('items').select('*').order('name');
     if(res.error){console.warn(table,res.error.message); return [];}
@@ -100,6 +102,7 @@ async function loadAll(){
   DATA.companies = await safeLoad('companies');
   DATA.ledgers = await safeLoad('vendor_ledgers');
   DATA.cust_ledgers = await safeLoad('customer_ledger');
+  DATA.banks = await safeLoad('banks');
   renderView();
 }
 
@@ -126,11 +129,8 @@ function renderView(){
   if(curTab==='dash'){
     let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
-    
-    // Total Customer Receivable Balance
     let totalCustRecv = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
 
-    // Mode-wise collection breakdown
     let modeTotals = { Cash: 0, Bank: 0, EasyPaisa: 0, JazzCash: 0, Others: 0 };
     DATA.cust_ledgers.filter(l => l.type === 'payment').forEach(l => {
       let m = l.payment_mode || 'Cash';
@@ -153,9 +153,9 @@ function renderView(){
       '<div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase">Total Sale</div><div class="text-2xl font-bold">Rs '+total.toLocaleString()+'</div></div>'+
       '<div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500">Today Sale</div><div class="text-2xl font-bold">Rs '+today.toLocaleString()+'</div></div>'+
       '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Items</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.items.length+'</div></div>'+
+      '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Banks</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.banks.length+'</div></div>'+
     '</div>'+
-    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections by Mode (Wasooli Breakdown)</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections by Mode</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
       '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Cash</div><div class="text-lg font-bold text-green-600">Rs '+modeTotals.Cash.toLocaleString()+'</div></div>'+
       '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Bank</div><div class="text-lg font-bold text-blue-600">Rs '+modeTotals.Bank.toLocaleString()+'</div></div>'+
       '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">EasyPaisa</div><div class="text-lg font-bold text-emerald-600">Rs '+modeTotals.EasyPaisa.toLocaleString()+'</div></div>'+
@@ -166,6 +166,16 @@ function renderView(){
       '<div class="card p-5 lg:col-span-2"><h3 class="font-bold mb-3">Recent Bills</h3><div class="space-y-2">'+billsList+'</div></div>'+
       '<div class="card p-5"><h3 class="font-bold mb-3">Top Vendors</h3>'+vendorsList+'</div>'+
     '</div>';
+    return;
+  }
+
+  if(curTab==='banks'){
+    let bankRows = DATA.banks.map(b => 
+      '<tr class="border-b hover:bg-slate-50"><td class="p-3 font-semibold">'+b.name+'</td><td class="p-3 font-mono text-xs text-slate-600">'+(b.account_no||'-')+'</td><td class="p-3 flex gap-1"><button onclick="editBank(\''+b.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delBank(\''+b.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>'
+    ).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">Abhi koi bank add nahi hua</td></tr>';
+
+    v.innerHTML='<div class="card p-5"><h3 id="bankTitle" class="font-bold mb-3">Add Bank / Wallet Account</h3><div class="grid md:grid-cols-2 gap-3"><input id="bName" class="input" placeholder="Bank / Wallet Name (e.g. Meezan Bank, EasyPaisa) *"><input id="bAcc" class="input" placeholder="Account Number / Title"></div><div class="flex gap-2 mt-4"><button id="bankBtn" onclick="saveBank()" class="btn-green flex-1">Save Bank</button><button id="bankCancel" onclick="cancelBank()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Bank / Wallet Name</th><th class="p-3 text-left">Account No</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+bankRows+'</tbody></table></div>';
     return;
   }
 
@@ -254,22 +264,25 @@ function renderView(){
     });
     let totalBal = run;
 
+    let bankOptions = DATA.banks.map(b => '<option value="'+b.id+'">'+b.name+' ('+(b.account_no||'No Acc')+')</option>').join('');
+
     let ledgerRows = rows.map(r => {
       let badgeCls = r.type === 'sale' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
-      let modeText = r.payment_mode ? '<span class="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded ml-1 text-slate-600">'+r.payment_mode+'</span>' : '';
-      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span>'+modeText+'</td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
+      let bankObj = DATA.banks.find(b => String(b.id) === String(r.bank_id));
+      let bankLabel = bankObj ? ' - ' + bankObj.name : (r.payment_mode ? ' - ' + r.payment_mode : '');
+      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span><span class="text-[10px] text-slate-500 ml-1">'+bankLabel+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
     }).join('');
 
     v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Customer Khata</h3><div class="text-sm">Balance Receivable: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'cust\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>'+
     '<div class="grid md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-xl mt-4">'+
       '<input id="clDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'">'+
       '<select id="clType" class="input" onchange="toggleClMode(this)"><option value="payment">Payment (Wasooli)</option><option value="sale">Sale Invoice</option></select>'+
-      '<select id="clMode" class="input"><option value="Cash">Cash</option><option value="Bank">Bank</option><option value="EasyPaisa">EasyPaisa</option><option value="JazzCash">JazzCash</option><option value="Others">Others</option></select>'+
+      '<select id="clBank" class="input"><option value="">Select Bank / Wallet</option>'+bankOptions+'</select>'+
       '<input id="clBill" class="input" placeholder="Ref / Bill No">'+
       '<input id="clAmt" type="number" class="input" placeholder="Amount">'+
       '<input id="clDesc" class="input" placeholder="Note">'+
     '</div><button onclick="addCustLed()" class="btn-dark mt-3">Add Ledger Entry</button></div>'+
-    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Mode</th><th class="p-2.5">Ref</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit (Sale)</th><th class="p-2.5">Credit (Paid)</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
+    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Bank</th><th class="p-2.5">Ref</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit (Sale)</th><th class="p-2.5">Credit (Paid)</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
     return;
   }
 
@@ -329,13 +342,25 @@ function renderView(){
     });
     let totalBal=rows.length ? rows[rows.length-1].bal : Number(c.opening_balance||0);
 
+    let bankOptions = DATA.banks.map(b => '<option value="'+b.id+'">'+b.name+' ('+(b.account_no||'No Acc')+')</option>').join('');
+
     let ledgerRows = rows.map(r => {
       let badgeCls = r.type==='purchase' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
-      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.entry_date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
+      let bankObj = DATA.banks.find(b => String(b.id) === String(r.bank_id));
+      let bankLabel = bankObj ? ' - ' + bankObj.name : (r.payment_mode ? ' - ' + r.payment_mode : '');
+      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.entry_date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span><span class="text-[10px] text-slate-500 ml-1">'+bankLabel+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Khata</h3><div class="text-sm">Balance: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'company\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div><div class="grid md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl mt-4"><input id="lDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'"><select id="lType" class="input"><option value="purchase">Purchase (Liya)</option><option value="payment">Payment (Diya)</option></select><input id="lBill" class="input" placeholder="Bill No"><input id="lAmt" type="number" class="input" placeholder="Amount"><input id="lDesc" class="input" placeholder="Note"></div><button onclick="addLed()" class="btn-dark mt-3">Add Entry</button></div>'+
-    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type</th><th class="p-2.5">Bill</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit</th><th class="p-2.5">Credit</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
+    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Khata</h3><div class="text-sm">Balance: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'company\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>'+
+    '<div class="grid md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-xl mt-4">'+
+      '<input id="lDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'">'+
+      '<select id="lType" class="input"><option value="purchase">Purchase (Liya)</option><option value="payment">Payment Diya (Adaigi)</option></select>'+
+      '<select id="lBank" class="input"><option value="">Select Bank / Wallet</option>'+bankOptions+'</select>'+
+      '<input id="lBill" class="input" placeholder="Bill No / Ref">'+
+      '<input id="lAmt" type="number" class="input" placeholder="Amount">'+
+      '<input id="lDesc" class="input" placeholder="Note">'+
+    '</div><button onclick="addLed()" class="btn-dark mt-3">Add Entry</button></div>'+
+    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Bank</th><th class="p-2.5">Bill</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit</th><th class="p-2.5">Credit</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
     return;
   }
 
@@ -388,8 +413,8 @@ function renderView(){
 }
 
 function toggleClMode(sel){
-  let modeEl = document.getElementById('clMode');
-  if(modeEl) modeEl.style.display = sel.value === 'payment' ? 'block' : 'none';
+  let bankEl = document.getElementById('clBank');
+  if(bankEl) bankEl.style.display = sel.value === 'payment' ? 'block' : 'none';
 }
 
 function openCustLedger(id){
@@ -403,12 +428,12 @@ async function addCustLed(){
   let amt = Number(document.getElementById('clAmt').value || 0);
   if(!amt) return alert('Amount darj karein!');
   let type = document.getElementById('clType').value;
-  let mode = document.getElementById('clMode').value;
+  let bankId = document.getElementById('clBank').value || null;
   let payload = {
     customer_id: CUR_CUSTOMER,
     date: document.getElementById('clDate').value,
     type: type,
-    payment_mode: type === 'payment' ? mode : 'Cash',
+    bank_id: type === 'payment' ? bankId : null,
     bill_no: document.getElementById('clBill').value,
     description: document.getElementById('clDesc').value,
     debit: type === 'sale' ? amt : 0,
@@ -418,6 +443,45 @@ async function addCustLed(){
   if(error){ alert(error.message); return; }
   await loadAll();
   openCustLedger(CUR_CUSTOMER);
+}
+
+async function saveBank(){
+  let name = document.getElementById('bName').value.trim();
+  if(!name) return alert('Bank/Wallet name likhein!');
+  let payload = { name: name, account_no: document.getElementById('bAcc').value };
+  if(EDIT_BANK_ID){
+    let { error } = await supa.from('banks').update(payload).eq('id', EDIT_BANK_ID);
+    if(error){ alert(error.message); return; }
+    cancelBank(); loadAll(); return;
+  }
+  let { error } = await supa.from('banks').insert([payload]);
+  if(error){ alert(error.message); return; }
+  cancelBank(); loadAll();
+}
+
+function editBank(id){
+  let b = DATA.banks.find(x => String(x.id) === String(id));
+  EDIT_BANK_ID = id;
+  document.getElementById('bName').value = b.name || '';
+  document.getElementById('bAcc').value = b.account_no || '';
+  document.getElementById('bankTitle').innerText = 'Edit Bank Account';
+  document.getElementById('bankBtn').innerText = 'Update Bank';
+  document.getElementById('bankCancel').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelBank(){
+  EDIT_BANK_ID = null;
+  ['bName', 'bAcc'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  document.getElementById('bankTitle').innerText = 'Add Bank / Wallet Account';
+  document.getElementById('bankBtn').innerText = 'Save Bank';
+  document.getElementById('bankCancel').classList.add('hidden');
+}
+
+async function delBank(id){
+  if(!confirm('Delete bank?')) return;
+  await supa.from('banks').delete().eq('id', id);
+  loadAll();
 }
 
 function printInvoice(id) {
@@ -643,7 +707,6 @@ async function saveFinalBill(){
     customer_id: totals.custId,
     date: new Date().toISOString().split('T')[0],
     type: 'sale',
-    payment_mode: 'Cash',
     bill_no: invNo,
     description: 'Sale Bill Total: Rs ' + totals.grandTotal,
     debit: totals.grandTotal,
@@ -658,14 +721,25 @@ async function saveFinalBill(){
 }
 
 function openLedger(id){ CUR_COMPANY = id; curTab = 'ledger'; document.getElementById('pageTitle').innerText = 'Vendor Ledger'; renderView(); }
+
 async function addLed(){
   let amt = Number(document.getElementById('lAmt').value || 0);
-  if(!amt) return alert('Amount');
+  if(!amt) return alert('Amount likhein!');
   let type = document.getElementById('lType').value;
-  let payload = { company_id: CUR_COMPANY, entry_date: document.getElementById('lDate').value, type, bill_no: document.getElementById('lBill').value, description: document.getElementById('lDesc').value, debit: type === 'purchase' ? amt : 0, credit: type === 'payment' ? amt : 0 };
+  let bankId = document.getElementById('lBank').value || null;
+  let payload = {
+    company_id: CUR_COMPANY,
+    entry_date: document.getElementById('lDate').value,
+    type: type,
+    bank_id: type === 'payment' ? bankId : null,
+    bill_no: document.getElementById('lBill').value,
+    description: document.getElementById('lDesc').value,
+    debit: type === 'purchase' ? amt : 0,
+    credit: type === 'payment' ? amt : 0
+  };
   let { error } = await supa.from('vendor_ledgers').insert([payload]);
   if(error){ alert(error.message); return; }
-  loadAll();
+  await loadAll();
   openLedger(CUR_COMPANY);
 }
 
