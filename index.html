@@ -562,10 +562,11 @@ async function saveFinalPurchase(){
   if(PURCHASE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
 
   let grandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
+  let billNo = 'PUR-' + Math.floor(1000 + Math.random() * 9000);
 
-  // 1. Save to purchases table
   let { data: pData, error: pErr } = await supa.from('purchases').insert([{
     vendor_id: vendorId,
+    bill_no: billNo,
     total_amount: grandTotal,
     purchase_date: purchaseDate
   }]).select();
@@ -577,7 +578,6 @@ async function saveFinalPurchase(){
 
   let purchaseId = pData && pData.length > 0 ? pData[0].id : null;
 
-  // 2. Save items & update stock
   for(let item of PURCHASE_ITEMS){
     if(purchaseId){
       await supa.from('purchase_items').insert([{
@@ -594,12 +594,11 @@ async function saveFinalPurchase(){
     await supa.from('items').update({ current_stock: newStock }).eq('id', item.id);
   }
 
-  // 3. Update Vendor Ledger (Debit entry for purchase)
   let { error: lErr } = await supa.from('vendor_ledgers').insert([{
     company_id: vendorId,
     entry_date: purchaseDate,
     type: 'purchase',
-    bill_no: purchaseId ? ('PUR-' + purchaseId.substring(0, 6)) : 'PUR-100',
+    bill_no: billNo,
     description: 'Purchase Bill Items Total: Rs ' + grandTotal,
     debit: grandTotal,
     credit: 0
@@ -609,7 +608,7 @@ async function saveFinalPurchase(){
     console.warn('Ledger entry error:', lErr.message);
   }
 
-  alert('Purchase Bill successfully save ho gaya aur stock/ledger update ho gaya!');
+  alert('Purchase Bill successfully save ho gaya!');
   PURCHASE_ITEMS = [];
   await loadAll();
   openTab('purchase');
