@@ -14,30 +14,18 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 </style></head>
 <body>
 
-<!-- AUTH MODAL FOR LOGIN & REGISTRATION -->
-<div id="authModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+<!-- AUTH MODAL BYPASSED / HIDDEN -->
+<div id="authModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
   <div class="card p-6 w-full max-w-md bg-white">
     <div class="text-center mb-6">
       <div class="w-12 h-12 bg-green-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">Q</div>
       <h2 id="authTitle" class="text-xl font-bold text-slate-800">Account Login</h2>
       <p class="text-xs text-slate-500">QNH Enterprises Distribution System</p>
     </div>
-
-    <div id="signUpFields" class="hidden space-y-3 mb-3">
-      <input id="authCompName" class="input" placeholder="Company / Organization Name *" />
-      <input id="authFullName" class="input" placeholder="Your Full Name *" />
-    </div>
-
     <div class="space-y-3">
       <input id="authEmail" type="email" class="input" placeholder="Email Address *" />
       <input id="authPassword" type="password" class="input" placeholder="Password *" />
-      <button id="authBtn" onclick="handleAuthSubmit()" class="btn-green mt-2">Login</button>
-    </div>
-
-    <div class="mt-4 text-center">
-      <button id="authToggleBtn" onclick="toggleAuthMode()" class="text-xs text-slate-600 underline font-semibold">
-        Naya Account Banayein (Sign Up)
-      </button>
+      <button id="authBtn" class="btn-green mt-2">Login</button>
     </div>
   </div>
 </div>
@@ -51,8 +39,7 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 <div class="pt-4 border-t space-y-3">
   <button onclick="window.open('https://gemini.google.com/','_blank')" style="background:linear-gradient(90deg,#8e2de2,#4a00e0);color:white;padding:10px;width:100%;border-radius:8px;border:none;cursor:pointer">✨ Open in Gemini</button>
   <div class="text-[10px] text-slate-400 flex justify-between items-center">
-    <div>✅ Connected<br>Fast Mode ON</div>
-    <button onclick="handleLogout()" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold">Logout</button>
+    <div>✅ System Active<br>Direct Access ON</div>
   </div>
 </div>
 </aside>
@@ -66,61 +53,6 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let isSignUpMode = false;
-
-function toggleAuthMode() {
-  isSignUpMode = !isSignUpMode;
-  document.getElementById('signUpFields').classList.toggle('hidden', !isSignUpMode);
-  document.getElementById('authTitle').innerText = isSignUpMode ? "Create New Organization" : "Account Login";
-  document.getElementById('authBtn').innerText = isSignUpMode ? "Register Company" : "Login";
-  document.getElementById('authToggleBtn').innerText = isSignUpMode ? "Already have account? Login" : "Naya Account Banayein (Sign Up)";
-}
-
-async function handleAuthSubmit() {
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value.trim();
-  if(!email || !password) return alert("Please fill Email & Password!");
-
-  if(isSignUpMode) {
-    const compName = document.getElementById('authCompName').value.trim();
-    const fullName = document.getElementById('authFullName').value.trim();
-    if(!compName) return alert("Company Name is required!");
-
-    const { data, error } = await supa.auth.signUp({
-      email, password,
-      options: { data: { company_name: compName, full_name: fullName || email } }
-    });
-    if(error) return alert("Registration Error: " + error.message);
-    alert("Sign Up Successful!");
-    toggleAuthMode();
-  } else {
-    const { data, error } = await supa.auth.signInWithPassword({ email, password });
-    if(error) return alert("Login Error: " + error.message);
-    document.getElementById('authModal').classList.add('hidden');
-    loadAll();
-  }
-}
-
-async function checkSession() {
-  const isLocal = window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if(isLocal) {
-    document.getElementById('authModal').classList.add('hidden');
-    loadAll();
-  } else {
-    const { data: { session } } = await supa.auth.getSession();
-    if(session) {
-      document.getElementById('authModal').classList.add('hidden');
-      loadAll();
-    } else {
-      document.getElementById('authModal').classList.remove('hidden');
-    }
-  }
-}
-
-async function handleLogout() {
-  await supa.auth.signOut();
-  window.location.reload();
-}
 
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null;
@@ -952,11 +884,10 @@ async function delCust(id){if(!confirm('Delete customer?'))return;let {error}=aw
 
 function editItem(id){let it=DATA.items.find(x=>String(x.id)===String(id));EDIT_ITEM_ID=id;document.getElementById('iName').value=it.name;document.getElementById('iComp').value=it.company_id||'';document.getElementById('iPur').value=it.purchase_cost||0;document.getElementById('iSale').value=it.sale_price||it.sale_cost||0;document.getElementById('iStock').value=it.current_stock||0;document.getElementById('itemTitle').innerText='Edit Item';document.getElementById('itemBtn').innerText='Update Item';document.getElementById('itemCancel').classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});}
 function cancelItem(){EDIT_ITEM_ID=null;['iName','iPur','iSale','iStock','iCat'].forEach(i=>{if(document.getElementById(i))document.getElementById(i).value='';});document.getElementById('iComp').value='';document.getElementById('itemTitle').innerText='Add Item';document.getElementById('itemBtn').innerText='Save Item';document.getElementById('itemCancel').classList.add('hidden');}
-async function saveItem(){let n=document.getElementById('iName').value;if(!n)return alert('Name');let payload={name:n,company_id:document.getElementById('iComp').value||null,purchase_cost:Number(document.getElementById('iPur').value||0),sale_price:Number(document.getElementById('iSale').value||0),sale_cost:Number(document.getElementById('iSale').value||0),current_stock:Number(document.getElementById('iStock').value||0)};if(EDIT_ITEM_ID){let {error}=await supa.from('items').update(payload).eq('id',EDIT_ITEM_ID);if(error){alert(error.message);return;}cancelItem();loadAll();return;}let {error}=await supa.from('items').insert([payload]);if(error){alert(error.message);return;}loadAll();}
+async function saveItem(){let n=document.getElementById('iName').value;if(!n)return alert('Name');let payload={name:n,company_id:document.getElementById('iComp').value||null,purchase_cost:Number(document.getElementById('iPur').value||0),sale_price:Number(document.getElementById('iSale').value||0),sale_cost:Number(document.getElementById('iSale').value||0),current_stock:Number(document.getElementById('iStock').value||0)};if(EDIT_ITEM_ID){let {error}=await supa.from('items').update(payload).eq('id',EDIT_ITEM_ID);if(error){alert(error.message);return;}cancelItem();loadAll();return;}let {error}=await supa.from('items':insert([payload]);if(error){alert(error.message);return;}loadAll();}
 async function delItem(id){if(!confirm('Delete?'))return;await supa.from('items').delete().eq('id',id);loadAll();}
 
 renderSide();
-document.getElementById('authModal').classList.add('hidden');
 loadAll();
 setInterval(()=>{document.querySelectorAll('a[href*="netlify"]').forEach(e=>e.remove());},1000);
 </script></body></html>
