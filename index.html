@@ -241,13 +241,27 @@ function renderView(){
     let custRows = DATA.customers.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
       let regBadge = isReg ? '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Registered</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-700">Unregistered</span>';
-      let bTypeBadge = (c.default_bill_type === 'tax') ? '<span class="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700 ml-1">Tax Invoice</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 ml-1">Simple Bill</span>';
+      let bTypeBadge = (c.default_bill_type === 'tax') ? '<span class="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700 ml-1">Tax Invoice (GST:'+(c.gst_rate||18)+'%)</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 ml-1">Simple Bill</span>';
       let bal = getCustBal(c.id);
       let cls = bal >= 0 ? 'text-red-600' : 'text-green-600';
       return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+' '+bTypeBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3><div class="grid md:grid-cols-5 gap-3"><input id="cName" class="input" placeholder="Name *"><input id="cPhone" class="input" placeholder="Phone"><input id="cArea" class="input" placeholder="Area"><select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select><select id="cBillType" class="input"><option value="simple">Default: Simple Bill</option><option value="tax">Default: Tax Invoice</option></select></div><div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    v.innerHTML='<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
+      '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
+        '<input id="cName" class="input" placeholder="Name *">'+
+        '<input id="cPhone" class="input" placeholder="Phone">'+
+        '<input id="cArea" class="input" placeholder="Area">'+
+        '<select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select>'+
+      '</div>'+
+      '<div class="grid md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl">'+
+        '<div><label class="text-[11px] font-bold text-slate-500">Default Bill Type</label><select id="cBillType" class="input mt-1"><option value="simple">Simple Bill</option><option value="tax">Tax Invoice</option></select></div>'+
+        '<div><label class="text-[11px] font-bold text-slate-500">GST Rate (%)</label><input id="cGstRate" type="number" class="input mt-1" value="18"></div>'+
+        '<div><label class="text-[11px] font-bold text-slate-500">Additional Tax (%)</label><input id="cAddTaxRate" type="number" class="input mt-1" value="3"></div>'+
+        '<div><label class="text-[11px] font-bold text-slate-500">Non-Reg Tax (%)</label><input id="cNonRegRate" type="number" step="0.01" class="input mt-1" value="0.25"></div>'+
+      '</div>'+
+      '<div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
+    '</div>'+
     '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
     return;
   }
@@ -366,7 +380,7 @@ function renderView(){
   if(curTab==='sale'){
     let custOptions = DATA.customers.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
-      return '<option value="'+c.id+'" data-type="'+(c.default_bill_type||'simple')+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
+      return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
     }).join('');
     let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+' - Rs '+(i.sale_price||i.sale_cost||0)+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
@@ -379,7 +393,7 @@ function renderView(){
         editNotice+
         '<h3 class="font-bold text-lg border-b pb-2">'+(EDIT_BILL_ID ? 'Edit Sale Invoice' : 'New Sale Invoice')+'</h3>'+
         '<div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" onchange="onSaleCustChange()" class="input mt-1"><option value="">Select Customer</option>'+custOptions+'</select></div>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Bill Type / Tax Mode</label><select id="saleBillType" onchange="calculateSaleTotals()" class="input mt-1"><option value="simple">Simple Bill (No Tax)</option><option value="tax">Tax Invoice (GST + Extra Tax)</option></select></div>'+
+        '<div><label class="text-xs font-semibold text-slate-500">Bill Type / Tax Mode (Auto from Customer)</label><select id="saleBillType" disabled class="input mt-1 bg-slate-100 cursor-not-allowed"><option value="simple">Simple Bill (No Tax)</option><option value="tax">Tax Invoice (GST + Extra Tax)</option></select></div>'+
         '<div class="border-t pt-4 space-y-3">'+
           '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="saleItem" onchange="onSaleItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select></div>'+
           '<div class="grid grid-cols-2 gap-2">'+
@@ -396,9 +410,9 @@ function renderView(){
         '</div>'+
         '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
           '<div class="flex justify-between text-slate-600"><span>Sub Total:</span><b id="lblSubTotal">Rs 0</b></div>'+
-          '<div id="rowGst" class="flex justify-between items-center text-slate-600"><span>GST (<input id="gstRate" type="number" value="18" oninput="calculateSaleTotals()" class="w-14 border rounded px-1 text-center text-xs font-bold bg-white"> %):</span><b id="lblGst">Rs 0</b></div>'+
-          '<div id="rowAddTax" class="flex justify-between items-center text-slate-600"><span>Additional Tax (<input id="addTaxRate" type="number" value="3" oninput="calculateSaleTotals()" class="w-14 border rounded px-1 text-center text-xs font-bold bg-white"> %):</span><b id="lblAddTax">Rs 0</b></div>'+
-          '<div id="rowNonReg" class="flex justify-between items-center text-amber-700 bg-amber-50 p-1.5 rounded"><span>Non-Registered Tax (<input id="nonRegTaxRate" type="number" value="0.25" step="0.01" oninput="calculateSaleTotals()" class="w-16 border rounded px-1 text-center text-xs font-bold bg-white"> %):</span><b id="lblNonRegTax">Rs 0</b></div>'+
+          '<div id="rowGst" class="flex justify-between items-center text-slate-600"><span>GST (<input id="gstRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblGst">Rs 0</b></div>'+
+          '<div id="rowAddTax" class="flex justify-between items-center text-slate-600"><span>Additional Tax (<input id="addTaxRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblAddTax">Rs 0</b></div>'+
+          '<div id="rowNonReg" class="flex justify-between items-center text-amber-700 bg-amber-50 p-1.5 rounded"><span>Non-Registered Tax (<input id="nonRegTaxRate" type="number" disabled class="w-16 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblNonRegTax">Rs 0</b></div>'+
           '<div class="border-t pt-2 flex justify-between items-center">'+
             '<div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600" id="lblGrandTotal">Rs 0</div></div>'+
             '<button onclick="saveFinalBill()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">'+(EDIT_BILL_ID ? 'Update Bill' : 'Complete & Save Bill')+'</button>'+
@@ -414,11 +428,17 @@ function renderView(){
 function onSaleCustChange(){
   let custEl = document.getElementById('saleCust');
   let typeEl = document.getElementById('saleBillType');
-  if(!custEl || !typeEl) return;
+  let gstEl = document.getElementById('gstRate');
+  let addEl = document.getElementById('addTaxRate');
+  let nonEl = document.getElementById('nonRegTaxRate');
+  if(!custEl) return;
   let custId = custEl.value;
   let c = DATA.customers.find(x => String(x.id) === String(custId));
-  if(c && c.default_bill_type){
-    typeEl.value = c.default_bill_type;
+  if(c){
+    if(typeEl) typeEl.value = c.default_bill_type || 'simple';
+    if(gstEl) gstEl.value = c.gst_rate !== undefined ? c.gst_rate : 18;
+    if(addEl) addEl.value = c.add_tax_rate !== undefined ? c.add_tax_rate : 3;
+    if(nonEl) nonEl.value = c.non_reg_tax_rate !== undefined ? c.non_reg_tax_rate : 0.25;
   }
   calculateSaleTotals();
 }
@@ -539,7 +559,6 @@ function onSaleItemChange(){
 
 function addItemToSale(){
   let curCust = document.getElementById('saleCust') ? document.getElementById('saleCust').value : '';
-  let curType = document.getElementById('saleBillType') ? document.getElementById('saleBillType').value : '';
   let saleItemEl = document.getElementById('saleItem');
   let itemId = saleItemEl ? saleItemEl.value : '';
   let price = Number(document.getElementById('salePrice') ? document.getElementById('salePrice').value : 0);
@@ -550,8 +569,10 @@ function addItemToSale(){
   if(!it) return alert('Selected Item nahi mila!');
   SALE_ITEMS.push({ id: it.id, name: it.name, price: price, qty: qty });
   renderView();
-  if (document.getElementById('saleCust') && curCust) document.getElementById('saleCust').value = curCust;
-  if (document.getElementById('saleBillType') && curType) document.getElementById('saleBillType').value = curType;
+  if (document.getElementById('saleCust') && curCust) {
+    document.getElementById('saleCust').value = curCust;
+    onSaleCustChange();
+  }
   if(document.getElementById('saleItem')) document.getElementById('saleItem').value = '';
   if(document.getElementById('salePrice')) document.getElementById('salePrice').value = '';
   if(document.getElementById('saleQty')) document.getElementById('saleQty').value = '1';
@@ -803,6 +824,9 @@ function editCust(id){
   document.getElementById('cArea').value = c.area || '';
   document.getElementById('cRegistered').value = (c.is_registered === true || String(c.is_registered) === 'true') ? 'true' : 'false';
   document.getElementById('cBillType').value = c.default_bill_type || 'simple';
+  document.getElementById('cGstRate').value = c.gst_rate !== undefined ? c.gst_rate : 18;
+  document.getElementById('cAddTaxRate').value = c.add_tax_rate !== undefined ? c.add_tax_rate : 3;
+  document.getElementById('cNonRegRate').value = c.non_reg_tax_rate !== undefined ? c.non_reg_tax_rate : 0.25;
   document.getElementById('custTitle').innerText = 'Edit Customer';
   document.getElementById('custBtn').innerText = 'Update Customer';
   document.getElementById('custCancel').classList.remove('hidden');
@@ -814,6 +838,9 @@ function cancelCust(){
   ['cName', 'cPhone', 'cArea'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   if(document.getElementById('cRegistered')) document.getElementById('cRegistered').value = 'false';
   if(document.getElementById('cBillType')) document.getElementById('cBillType').value = 'simple';
+  if(document.getElementById('cGstRate')) document.getElementById('cGstRate').value = '18';
+  if(document.getElementById('cAddTaxRate')) document.getElementById('cAddTaxRate').value = '3';
+  if(document.getElementById('cNonRegRate')) document.getElementById('cNonRegRate').value = '0.25';
   document.getElementById('custTitle').innerText = 'Add Customer';
   document.getElementById('custBtn').innerText = 'Save Customer';
   document.getElementById('custCancel').classList.add('hidden');
@@ -824,7 +851,19 @@ async function saveCustomer(){
   if(!n) return alert('Name');
   let isReg = document.getElementById('cRegistered').value === 'true';
   let bType = document.getElementById('cBillType').value;
-  let payload = { name: n, phone: document.getElementById('cPhone').value, area: document.getElementById('cArea').value, is_registered: isReg, default_bill_type: bType };
+  let gstR = Number(document.getElementById('cGstRate').value || 18);
+  let addR = Number(document.getElementById('cAddTaxRate').value || 3);
+  let nonR = Number(document.getElementById('cNonRegRate').value || 0.25);
+  let payload = { 
+    name: n, 
+    phone: document.getElementById('cPhone').value, 
+    area: document.getElementById('cArea').value, 
+    is_registered: isReg, 
+    default_bill_type: bType,
+    gst_rate: gstR,
+    add_tax_rate: addR,
+    non_reg_tax_rate: nonR
+  };
   if(EDIT_CUST_ID){
     let { error } = await supa.from('customers').update(payload).eq('id', EDIT_CUST_ID);
     if(error){ alert(error.message); return; }
@@ -866,7 +905,7 @@ function cancelItem(){
 }
 
 async function saveItem(){
-  let n = document.getElementById('iName.value') || document.getElementById('iName').value;
+  let n = document.getElementById('iName').value;
   if(!n) return alert('Name');
   let payload = { name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0) };
   if(EDIT_ITEM_ID){
