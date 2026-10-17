@@ -133,7 +133,8 @@ function renderView(){
 
     let modeTotals = { Cash: 0, Bank: 0, EasyPaisa: 0, JazzCash: 0, Others: 0 };
     DATA.cust_ledgers.filter(l => l.type === 'payment').forEach(l => {
-      let m = l.payment_mode || 'Cash';
+      let bObj = DATA.banks.find(b => String(b.id) === String(l.bank_id));
+      let m = bObj ? bObj.name : (l.payment_mode || 'Cash');
       if(modeTotals[m] !== undefined) modeTotals[m] += Number(l.credit || 0);
       else modeTotals['Others'] += Number(l.credit || 0);
     });
@@ -155,12 +156,9 @@ function renderView(){
       '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div></div>'+
       '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Banks</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.banks.length+'</div></div>'+
     '</div>'+
-    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections by Mode</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Cash</div><div class="text-lg font-bold text-green-600">Rs '+modeTotals.Cash.toLocaleString()+'</div></div>'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Bank</div><div class="text-lg font-bold text-blue-600">Rs '+modeTotals.Bank.toLocaleString()+'</div></div>'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">EasyPaisa</div><div class="text-lg font-bold text-emerald-600">Rs '+modeTotals.EasyPaisa.toLocaleString()+'</div></div>'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">JazzCash</div><div class="text-lg font-bold text-orange-600">Rs '+modeTotals.JazzCash.toLocaleString()+'</div></div>'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Others</div><div class="text-lg font-bold text-purple-600">Rs '+modeTotals.Others.toLocaleString()+'</div></div>'+
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections Summary</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Cash / General</div><div class="text-lg font-bold text-green-600">Rs '+modeTotals.Cash.toLocaleString()+'</div></div>'+
+      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Bank / Wallets</div><div class="text-lg font-bold text-blue-600">Rs '+(modeTotals.Bank + modeTotals.EasyPaisa + modeTotals.JazzCash + modeTotals.Others).toLocaleString()+'</div></div>'+
     '</div></div>'+
     '<div class="grid lg:grid-cols-3 gap-4">'+
       '<div class="card p-5 lg:col-span-2"><h3 class="font-bold mb-3">Recent Bills</h3><div class="space-y-2">'+billsList+'</div></div>'+
@@ -243,13 +241,14 @@ function renderView(){
     let custRows = DATA.customers.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
       let regBadge = isReg ? '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Registered</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-700">Unregistered</span>';
+      let bTypeBadge = (c.default_bill_type === 'tax') ? '<span class="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700 ml-1">Tax Invoice</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 ml-1">Simple Bill</span>';
       let bal = getCustBal(c.id);
       let cls = bal >= 0 ? 'text-red-600' : 'text-green-600';
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+' '+bTypeBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3><div class="grid md:grid-cols-4 gap-3"><input id="cName" class="input" placeholder="Name *"><input id="cPhone" class="input" placeholder="Phone"><input id="cArea" class="input" placeholder="Area"><select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select></div><div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
+    v.innerHTML='<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3><div class="grid md:grid-cols-5 gap-3"><input id="cName" class="input" placeholder="Name *"><input id="cPhone" class="input" placeholder="Phone"><input id="cArea" class="input" placeholder="Area"><select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select><select id="cBillType" class="input"><option value="simple">Default: Simple Bill</option><option value="tax">Default: Tax Invoice</option></select></div><div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
     return;
   }
 
@@ -367,7 +366,7 @@ function renderView(){
   if(curTab==='sale'){
     let custOptions = DATA.customers.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
-      return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
+      return '<option value="'+c.id+'" data-type="'+(c.default_bill_type||'simple')+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
     }).join('');
     let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+' - Rs '+(i.sale_price||i.sale_cost||0)+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
@@ -379,7 +378,7 @@ function renderView(){
       '<div class="card p-5 md:col-span-1 space-y-4">'+
         editNotice+
         '<h3 class="font-bold text-lg border-b pb-2">'+(EDIT_BILL_ID ? 'Edit Sale Invoice' : 'New Sale Invoice')+'</h3>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" onchange="calculateSaleTotals()" class="input mt-1"><option value="">Select Customer</option>'+custOptions+'</select></div>'+
+        '<div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" onchange="onSaleCustChange()" class="input mt-1"><option value="">Select Customer</option>'+custOptions+'</select></div>'+
         '<div><label class="text-xs font-semibold text-slate-500">Bill Type / Tax Mode</label><select id="saleBillType" onchange="calculateSaleTotals()" class="input mt-1"><option value="simple">Simple Bill (No Tax)</option><option value="tax">Tax Invoice (GST + Extra Tax)</option></select></div>'+
         '<div class="border-t pt-4 space-y-3">'+
           '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="saleItem" onchange="onSaleItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select></div>'+
@@ -410,6 +409,18 @@ function renderView(){
     setTimeout(calculateSaleTotals, 50);
     return;
   }
+}
+
+function onSaleCustChange(){
+  let custEl = document.getElementById('saleCust');
+  let typeEl = document.getElementById('saleBillType');
+  if(!custEl || !typeEl) return;
+  let custId = custEl.value;
+  let c = DATA.customers.find(x => String(x.id) === String(custId));
+  if(c && c.default_bill_type){
+    typeEl.value = c.default_bill_type;
+  }
+  calculateSaleTotals();
 }
 
 function toggleClMode(sel){
@@ -791,6 +802,7 @@ function editCust(id){
   document.getElementById('cPhone').value = c.phone || '';
   document.getElementById('cArea').value = c.area || '';
   document.getElementById('cRegistered').value = (c.is_registered === true || String(c.is_registered) === 'true') ? 'true' : 'false';
+  document.getElementById('cBillType').value = c.default_bill_type || 'simple';
   document.getElementById('custTitle').innerText = 'Edit Customer';
   document.getElementById('custBtn').innerText = 'Update Customer';
   document.getElementById('custCancel').classList.remove('hidden');
@@ -801,6 +813,7 @@ function cancelCust(){
   EDIT_CUST_ID = null;
   ['cName', 'cPhone', 'cArea'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   if(document.getElementById('cRegistered')) document.getElementById('cRegistered').value = 'false';
+  if(document.getElementById('cBillType')) document.getElementById('cBillType').value = 'simple';
   document.getElementById('custTitle').innerText = 'Add Customer';
   document.getElementById('custBtn').innerText = 'Save Customer';
   document.getElementById('custCancel').classList.add('hidden');
@@ -810,7 +823,8 @@ async function saveCustomer(){
   let n = document.getElementById('cName').value.trim();
   if(!n) return alert('Name');
   let isReg = document.getElementById('cRegistered').value === 'true';
-  let payload = { name: n, phone: document.getElementById('cPhone').value, area: document.getElementById('cArea').value, is_registered: isReg };
+  let bType = document.getElementById('cBillType').value;
+  let payload = { name: n, phone: document.getElementById('cPhone').value, area: document.getElementById('cArea').value, is_registered: isReg, default_bill_type: bType };
   if(EDIT_CUST_ID){
     let { error } = await supa.from('customers').update(payload).eq('id', EDIT_CUST_ID);
     if(error){ alert(error.message); return; }
@@ -852,7 +866,7 @@ function cancelItem(){
 }
 
 async function saveItem(){
-  let n = document.getElementById('iName').value;
+  let n = document.getElementById('iName.value') || document.getElementById('iName').value;
   if(!n) return alert('Name');
   let payload = { name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0) };
   if(EDIT_ITEM_ID){
