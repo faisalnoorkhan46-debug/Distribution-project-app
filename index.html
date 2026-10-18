@@ -39,7 +39,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '';
 const TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
@@ -267,28 +267,45 @@ function renderView(){
   }
 
   if(curTab==='company'){
-    let compRows = DATA.companies.map(function(c){
+    let filteredComps = DATA.companies.filter(c => {
+      let q = COMP_SEARCH.toLowerCase();
+      return !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q) || (c.address||'').toLowerCase().includes(q);
+    });
+
+    let compRows = filteredComps.map(function(c){
       let bal=getBal(c.id);
       let cls = bal>=0 ? 'text-red-600' : 'text-green-600';
       let txt = bal>=0 ? 'Payable' : 'Receivable';
       return '<tr class="border-b hover:bg-slate-50"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'')+'</div></td><td class="p-3 text-center font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'<div class="text-[10px]">'+txt+'</div></td><td class="p-3 flex gap-1 justify-center"><button onclick="openLedger(\''+c.id+'\')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs">Ledger</button><button onclick="editComp(\''+c.id+'\')" class="px-2 py-1.5 bg-blue-600 text-white rounded-lg text-xs">✏</button><button onclick="delComp(\''+c.id+'\')" class="px-2 py-1.5 bg-red-500 text-white rounded-lg text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><h3 class="font-bold mb-3" id="compTitle">Add Vendor</h3><div class="grid md:grid-cols-3 gap-3"><input id="compName" class="input" placeholder="Vendor Name *"><input id="compPhone" class="input" placeholder="Phone"><input id="compOpen" type="number" class="input" placeholder="Opening Balance"><input id="compAddr" class="input md:col-span-3" placeholder="Address"></div><div class="flex gap-2 mt-4"><button id="compBtn" onclick="saveCompany()" class="btn-green flex-1">Save Vendor</button><button id="compCancel" onclick="cancelComp()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-0 mt-6 overflow-hidden"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Vendor</th><th class="p-3">Balance</th><th class="p-3">Action</th></tr></thead><tbody>'+compRows+'</tbody></table></div>';
+    v.innerHTML='<div class="card p-5 mb-6"><h3 class="font-bold mb-3" id="compTitle">Add Vendor</h3><div class="grid md:grid-cols-3 gap-3"><input id="compName" class="input" placeholder="Vendor Name *"><input id="compPhone" class="input" placeholder="Phone"><input id="compOpen" type="number" class="input" placeholder="Opening Balance"><input id="compAddr" class="input md:col-span-3" placeholder="Address"></div><div class="flex gap-2 mt-4"><button id="compBtn" onclick="saveCompany()" class="btn-green flex-1">Save Vendor</button><button id="compCancel" onclick="cancelComp()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    '<div class="card p-5 mb-6"><input id="compSearchInput" class="input" placeholder="🔍 Search Vendor by Name, Phone, or Address..." value="'+COMP_SEARCH+'" oninput="COMP_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Vendor</th><th class="p-3">Balance</th><th class="p-3">Action</th></tr></thead><tbody>'+compRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('compSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
 
   if(curTab==='item'){
     let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
-    let itemRows = DATA.items.map(it => {
+    
+    let filteredItems = DATA.items.filter(it => {
+      let q = ITEM_SEARCH.toLowerCase();
+      let comp = DATA.companies.find(x => x.id === it.company_id);
+      let cName = comp ? comp.name : '';
+      return !q || (it.name||'').toLowerCase().includes(q) || cName.toLowerCase().includes(q) || (it.category||'').toLowerCase().includes(q);
+    });
+
+    let itemRows = filteredItems.map(it => {
       let comp=DATA.companies.find(x=>x.id===it.company_id);
       let lastPur = getLastPurchaseRate(it.id);
       return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'<div class="text-[10px] text-slate-500">Last Pur Cost: Rs '+lastPur+'</div></td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price *"><input id="iStock" type="number" class="input" placeholder="Stock"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Vendor</th><th class="p-3">Sale</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price *"><input id="iStock" type="number" class="input" placeholder="Stock"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    '<div class="card p-5 mb-6"><input id="itemSearchInput" class="input" placeholder="🔍 Search Item by Name, Vendor, or Category..." value="'+ITEM_SEARCH+'" oninput="ITEM_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Vendor</th><th class="p-3">Sale</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('itemSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
 
@@ -307,8 +324,7 @@ function renderView(){
       return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+' '+bTypeBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5 mb-6"><input id="custSearchInput" class="input" placeholder="🔍 Search Customer by Name, Phone, or Area..." value="'+CUST_SEARCH+'" oninput="CUST_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
       '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
         '<input id="cName" class="input" placeholder="Name *">'+
         '<input id="cPhone" class="input" placeholder="Phone">'+
@@ -323,7 +339,8 @@ function renderView(){
       '</div>'+
       '<div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
     '</div>'+
-    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
+    '<div class="card p-5 mb-6"><input id="custSearchInput" class="input" placeholder="🔍 Search Customer by Name, Phone, or Area..." value="'+CUST_SEARCH+'" oninput="CUST_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('custSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
@@ -653,7 +670,6 @@ function addItemToSale(){
     document.getElementById('saleCust').value = curCust;
     onSaleCustChange();
   }
-  // Focus back to sale item box
   setTimeout(() => {
     let itemEl = document.getElementById('saleItem');
     if(itemEl){ itemEl.focus(); }
@@ -661,8 +677,14 @@ function addItemToSale(){
 }
 
 function removeSaleItem(index){
+  let curCust = document.getElementById('saleCust') ? document.getElementById('saleCust').value : '';
+  let billType = document.getElementById('saleBillType') ? document.getElementById('saleBillType').value : '';
   SALE_ITEMS.splice(index, 1);
   renderView();
+  if (document.getElementById('saleCust') && curCust) {
+    document.getElementById('saleCust').value = curCust;
+    onSaleCustChange();
+  }
 }
 
 function onPurchaseItemChange(){
@@ -690,7 +712,6 @@ function addItemToPurchase(){
   if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
   if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
   
-  // Focus back to purchase item box
   setTimeout(() => {
     let pItemEl = document.getElementById('purchaseItem');
     if(pItemEl){ pItemEl.focus(); }
@@ -698,8 +719,12 @@ function addItemToPurchase(){
 }
 
 function removePurchaseItem(index){
+  let vendorId = document.getElementById('purchaseVendor') ? document.getElementById('purchaseVendor').value : '';
+  let purchaseDate = document.getElementById('purchaseDate') ? document.getElementById('purchaseDate').value : '';
   PURCHASE_ITEMS.splice(index, 1);
   renderView();
+  if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
+  if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
 }
 
 async function saveFinalPurchase(){
@@ -872,11 +897,15 @@ async function saveCompany(){
   if(EDIT_COMP_ID){
     let { error } = await supa.from('companies').update(payload).eq('id', EDIT_COMP_ID);
     if(error){ alert(error.message); return; }
-    cancelComp(); loadAll(); return;
+    cancelComp(); loadAll();
+    setTimeout(() => { let el = document.getElementById('compName'); if(el) el.focus(); }, 50);
+    return;
   }
   let { error } = await supa.from('companies').insert([payload]);
   if(error){ alert(error.message); return; }
+  cancelComp();
   loadAll();
+  setTimeout(() => { let el = document.getElementById('compName'); if(el) el.focus(); }, 50);
 }
 
 function editComp(id){
@@ -894,7 +923,7 @@ function editComp(id){
 
 function cancelComp(){
   EDIT_COMP_ID = null;
-  ['compName', 'compPhone', 'compAddr', 'compOpen'].forEach(i => document.getElementById(i).value = '');
+  ['compName', 'compPhone', 'compAddr', 'compOpen'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   document.getElementById('compTitle').innerText = 'Add Vendor';
   document.getElementById('compBtn').innerText = 'Save Vendor';
   document.getElementById('compCancel').classList.add('hidden');
@@ -1001,11 +1030,15 @@ async function saveItem(){
   if(EDIT_ITEM_ID){
     let { error } = await supa.from('items').update(payload).eq('id', EDIT_ITEM_ID);
     if(error){ alert(error.message); return; }
-    cancelItem(); loadAll(); return;
+    cancelItem(); loadAll();
+    setTimeout(() => { let el = document.getElementById('iName'); if(el) el.focus(); }, 50);
+    return;
   }
   let { error } = await supa.from('items').insert([payload]);
   if(error){ alert(error.message); return; }
+  cancelItem();
   loadAll();
+  setTimeout(() => { let el = document.getElementById('iName'); if(el) el.focus(); }, 50);
 }
 
 async function delItem(id){
