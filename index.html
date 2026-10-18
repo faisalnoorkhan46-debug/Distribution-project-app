@@ -86,7 +86,7 @@ function toggleMobileMenu(){
 async function safeLoad(table){
   try{
     let res;
-    if(table==='bills') res = await supa.from('bills').select('*, customers(name, area), salesmen(name)').order('created_at',{ascending:false}).limit(300);
+    if(table==='bills') res = await supa.from('bills').select('*').order('created_at',{ascending:false}).limit(300);
     else if(table==='companies') res = await supa.from('companies').select('*').order('name');
     else if(table==='vendor_ledgers') res = await supa.from('vendor_ledgers').select('*').order('entry_date',{ascending:true});
     else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').order('date',{ascending:true});
@@ -172,7 +172,8 @@ function renderView(){
     });
 
     let billsList = DATA.bills.slice(0,5).map(function(b){
-      let cName = (b.customers && b.customers.name) ? b.customers.name : '-';
+      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+      let cName = custObj ? custObj.name : '-';
       return '<div class="flex justify-between p-2.5 bg-slate-50 rounded-xl text-sm"><span class="font-mono">'+b.invoice_no+'</span><span>'+cName+'</span><b>Rs '+Number(b.total_amount||0).toLocaleString()+'</b></div>';
     }).join('') || 'No bills';
 
@@ -404,16 +405,19 @@ function renderView(){
     let filteredBills = DATA.bills.filter(b => {
       let matchInv = !HIST_FILTERS.inv || (b.invoice_no||'').toLowerCase().includes(HIST_FILTERS.inv.toLowerCase());
       let matchDate = !HIST_FILTERS.date || (b.created_at && b.created_at.startsWith(HIST_FILTERS.date));
-      let cName = b.customers?.name || '';
+      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+      let cName = custObj ? custObj.name : '';
       let matchCust = !HIST_FILTERS.cust || cName.toLowerCase().includes(HIST_FILTERS.cust.toLowerCase());
       let matchType = !HIST_FILTERS.type || (b.bill_type || 'simple') === HIST_FILTERS.type;
       return matchInv && matchDate && matchCust && matchType;
     });
 
     let billRows = filteredBills.map(b => {
-      let cName = b.customers?.name || '-';
-      let cArea = b.customers?.area || '-';
-      let sName = b.salesmen?.name || '-';
+      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+      let cName = custObj ? custObj.name : '-';
+      let cArea = custObj ? custObj.area : '-';
+      let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
+      let sName = salObj ? salObj.name : '-';
       let bType = b.bill_type === 'tax' ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">TAX</span>' : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">SIMPLE</span>';
       return '<tr class="border-b hover:bg-slate-50">'+
         '<td class="p-3 text-center"><input type="checkbox" class="inv-checkbox" value="'+b.id+'"></td>'+
@@ -683,9 +687,11 @@ function printInvoice(id) {
   if(!b) return alert('Bill nahi mila!');
   let items = [];
   try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e) { items = []; }
-  let cName = b.customers?.name || 'Walk-in Customer';
-  let cArea = b.customers?.area || '-';
-  let sName = b.salesmen?.name || '-';
+  let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+  let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
+  let cName = custObj?.name || 'Walk-in Customer';
+  let cArea = custObj?.area || '-';
+  let sName = salObj?.name || '-';
   let printWindow = window.open('', '_blank', 'width=800,height=600');
   printWindow.document.write('<html><head><title>Invoice - ' + b.invoice_no + '</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.header{text-align:center;margin-bottom:20px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:20px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}th{background-color:#f2f2f2}.total{text-align:right;font-size:16px;font-weight:bold}</style></head><body><div class="header"><h2>QNH ENTERPRISES</h2><p>Distribution System - Invoice</p></div><div class="invoice-info"><div><p><b>Invoice No:</b> ' + b.invoice_no + '</p><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p><p><b>Type:</b> ' + (b.bill_type || 'simple').toUpperCase() + '</p></div></div><table><thead><tr><th>Item Name</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Grand Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
   printWindow.document.close();
@@ -706,9 +712,11 @@ function printSelectedInvoices() {
   selectedBills.forEach(b => {
     let items = [];
     try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e){}
-    let cName = b.customers?.name || 'Customer';
-    let cArea = b.customers?.area || '';
-    let sName = b.salesmen?.name || '';
+    let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+    let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
+    let cName = custObj?.name || 'Customer';
+    let cArea = custObj?.area || '';
+    let sName = salObj?.name || '';
     htmlContent += '<div class="invoice-page"><div class="header"><h2>QNH ENTERPRISES</h2><p>Invoice: ' + b.invoice_no + '</p></div><div class="invoice-info"><div><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p></div></div><table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><hr style="margin-top:30px; border: 1px dashed #ccc;"></div>';
   });
   htmlContent += '<script>window.onload=function(){window.print();}<\/script></body></html>';
