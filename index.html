@@ -36,7 +36,7 @@ const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[]};
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
 let CUST_SEARCH = '';
@@ -89,6 +89,7 @@ async function safeLoad(table){
     else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').order('date',{ascending:true});
     else if(table==='banks') res = await supa.from('banks').select('*').order('name');
     else if(table==='customers') res = await supa.from('customers').select('*').order('name');
+    else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').order('created_at',{ascending:false});
     else res = await supa.from('items').select('*').order('name');
     if(res.error){console.warn(table,res.error.message); return [];}
     return res.data||[];
@@ -104,6 +105,7 @@ async function loadAll(){
   DATA.ledgers = await safeLoad('vendor_ledgers');
   DATA.cust_ledgers = await safeLoad('customer_ledger');
   DATA.banks = await safeLoad('banks');
+  DATA.purchases = await safeLoad('purchases');
   renderView();
 }
 
@@ -123,6 +125,30 @@ function getCustBal(cid){
     bal += Number(e.debit || 0) - Number(e.credit || 0);
   });
   return bal;
+}
+
+function getLastSaleRate(custId, itemId){
+  for(let b of DATA.bills){
+    if(String(b.customer_id) === String(custId)){
+      try{
+        let items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []);
+        let found = items.find(i => String(i.id) === String(itemId));
+        if(found) return Number(found.price);
+      }catch(e){}
+    }
+  }
+  return null;
+}
+
+function getLastPurchaseRate(itemId){
+  let lastCost = 0;
+  for(let p of DATA.purchases){
+    if(p.purchase_items){
+      let pi = p.purchase_items.find(x => String(x.item_id) === String(itemId));
+      if(pi){ lastCost = Number(pi.rate); break; }
+    }
+  }
+  return lastCost;
 }
 
 function renderView(){
@@ -204,7 +230,10 @@ function renderView(){
 
   if(curTab==='purchase'){
     let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
-    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'" data-cost="'+(i.purchase_cost||0)+'">'+i.name+'</option>').join('');
+    let itemOptions = DATA.items.map(i => {
+      let lastCost = getLastPurchaseRate(i.id) || i.purchase_cost || 0;
+      return '<option value="'+i.id+'" data-cost="'+lastCost+'">'+i.name+' (Last Cost: Rs '+lastCost+')</option>';
+    }).join('');
     let purchaseRows = PURCHASE_ITEMS.map((item, idx) => 
       '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.rate+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.rate * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removePurchaseItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
     ).join('');
@@ -254,7 +283,8 @@ function renderView(){
     let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
     let itemRows = DATA.items.map(it => {
       let comp=DATA.companies.find(x=>x.id===it.company_id);
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'</td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
+      let lastPur = getLastPurchaseRate(it.id);
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'<div class="text-[10px] text-slate-500">Last Pur Cost: Rs '+lastPur+'</div></td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
     v.innerHTML='<div class="card p-5"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price *"><input id="iStock" type="number" class="input" placeholder="Stock"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
@@ -414,7 +444,7 @@ function renderView(){
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
       return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
     }).join('');
-    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+' - Rs '+(i.sale_price||i.sale_cost||0)+'</option>').join('');
+    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
       '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.price * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
     ).join('');
@@ -472,6 +502,7 @@ function onSaleCustChange(){
     if(addEl) addEl.value = c.add_tax_rate !== undefined ? c.add_tax_rate : 3;
     if(nonEl) nonEl.value = c.non_reg_tax_rate !== undefined ? c.non_reg_tax_rate : 0.25;
   }
+  onSaleItemChange();
   calculateSaleTotals();
 }
 
@@ -584,9 +615,26 @@ function printSelectedInvoices() {
 }
 
 function onSaleItemChange(){
-  let itemId = document.getElementById('saleItem').value;
+  let custId = document.getElementById('saleCust')?.value;
+  let itemId = document.getElementById('saleItem')?.value;
+  if(!itemId) return;
   let it = DATA.items.find(x => String(x.id) === String(itemId));
-  if(it) document.getElementById('salePrice').value = it.sale_price || it.sale_cost || 0;
+  if(!it) return;
+
+  let rateToSet = it.sale_price || it.sale_cost || 0;
+  if(custId){
+    let lastCustRate = getLastSaleRate(custId, itemId);
+    if(lastCustRate !== null){
+      rateToSet = lastCustRate;
+    }
+  }
+  document.getElementById('salePrice').value = rateToSet;
+
+  // Loss Prevention Check
+  let lastPurchaseCost = getLastPurchaseRate(itemId) || it.purchase_cost || 0;
+  if(Number(rateToSet) < Number(lastPurchaseCost)){
+    alert('⚠️ WARNING (Loss Alert): Is item ka naya purchase cost/rate (Rs ' + lastPurchaseCost + ') zyada hai, aur aap yeh is se kam rate (Rs ' + rateToSet + ') par sale kar rahe hain!');
+  }
 }
 
 function addItemToSale(){
@@ -605,9 +653,11 @@ function addItemToSale(){
     document.getElementById('saleCust').value = curCust;
     onSaleCustChange();
   }
-  if(document.getElementById('saleItem')) document.getElementById('saleItem').value = '';
-  if(document.getElementById('salePrice')) document.getElementById('salePrice').value = '';
-  if(document.getElementById('saleQty')) document.getElementById('saleQty').value = '1';
+  // Focus back to sale item box
+  setTimeout(() => {
+    let itemEl = document.getElementById('saleItem');
+    if(itemEl){ itemEl.focus(); }
+  }, 50);
 }
 
 function removeSaleItem(index){
@@ -617,9 +667,11 @@ function removeSaleItem(index){
 
 function onPurchaseItemChange(){
   let itemEl = document.getElementById('purchaseItem');
-  let opt = itemEl.options[itemEl.selectedIndex];
-  let cost = opt ? opt.getAttribute('data-cost') : 0;
-  document.getElementById('purchaseRate').value = cost || 0;
+  let itemId = itemEl.value;
+  if(!itemId) return;
+  let it = DATA.items.find(x => String(x.id) === String(itemId));
+  let lastCost = getLastPurchaseRate(itemId) || (it ? (it.purchase_cost || 0) : 0);
+  document.getElementById('purchaseRate').value = lastCost;
 }
 
 function addItemToPurchase(){
@@ -637,6 +689,12 @@ function addItemToPurchase(){
   renderView();
   if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
   if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
+  
+  // Focus back to purchase item box
+  setTimeout(() => {
+    let pItemEl = document.getElementById('purchaseItem');
+    if(pItemEl){ pItemEl.focus(); }
+  }, 50);
 }
 
 function removePurchaseItem(index){
@@ -660,7 +718,7 @@ async function saveFinalPurchase(){
     }
     let currentIt = DATA.items.find(x => String(x.id) === String(item.id));
     let newStock = Number(currentIt?.current_stock || 0) + Number(item.qty);
-    await supa.from('items').update({ current_stock: newStock }).eq('id', item.id);
+    await supa.from('items').update({ current_stock: newStock, purchase_cost: item.rate }).eq('id', item.id);
   }
   let { error: lErr } = await supa.from('vendor_ledgers').insert([{ company_id: vendorId, entry_date: purchaseDate, type: 'purchase', bill_no: billNo, description: 'Purchase Bill Items Total: Rs ' + grandTotal, debit: grandTotal, credit: 0 }]);
   if(lErr) console.warn('Ledger entry error:', lErr.message);
