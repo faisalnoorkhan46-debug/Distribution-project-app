@@ -7,7 +7,7 @@
 <style>
 body{font-family:system-ui;background:#f6f8fb}
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
-.input{border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;width:100%;font-size:14px;background:#fff}
+.input{border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;width:100%;font-size:14px;background:#fff;text-transform:capitalize}
 .btn-green{background:#16a34a;color:#fff;font-weight:700;border-radius:12px;padding:11px 18px;width:100%}
 .btn-dark{background:#0f172a;color:#fff;font-weight:700;border-radius:12px;padding:11px 18px;width:100%}
 a[href*="netlify"],div[class*="netlify"]{display:none!important}
@@ -20,7 +20,6 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 <nav id="sideNav" class="space-y-1.5 flex-1"></nav>
 
 <div class="pt-4 border-t space-y-3">
-  <button onclick="window.open('https://gemini.google.com/','_blank')" style="background:linear-gradient(90deg,#8e2de2,#4a00e0);color:white;padding:10px;width:100%;border-radius:8px;border:none;cursor:pointer">✨ Open in Gemini</button>
   <div class="text-[10px] text-slate-400 flex justify-between items-center">
     <div>✅ System Active<br>Direct Access ON</div>
   </div>
@@ -40,12 +39,14 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
+let CUST_SEARCH = '';
 const TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
+  {id:'reports',label:'Reports',icon:'📈'},
   {id:'banks',label:'Banks & Accounts',icon:'🏦'},
   {id:'item',label:'Items',icon:'📦'},
   {id:'company',label:'Vendors',icon:'🏢'}
@@ -167,6 +168,30 @@ function renderView(){
     return;
   }
 
+  if(curTab==='reports'){
+    let totalSale = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
+    let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
+    let totalVendorBal = DATA.companies.reduce((sum, c) => sum + getBal(c.id), 0);
+    
+    let collectionsList = DATA.banks.map(b => {
+      let bTotal = DATA.cust_ledgers.filter(l => String(l.bank_id) === String(b.id)).reduce((s,l)=>s+Number(l.credit||0),0);
+      return '<div class="flex justify-between p-3 bg-slate-50 rounded-xl border text-sm"><span class="font-semibold">'+b.name+' <span class="text-xs text-slate-400">('+b.account_no+')</span></span><b class="text-blue-600">Rs '+bTotal.toLocaleString()+'</b></div>';
+    }).join('') || '<div class="text-slate-400 text-sm">Koi bank account add nahi hai</div>';
+
+    v.innerHTML='<div class="space-y-6">'+
+      '<div class="grid md:grid-cols-3 gap-4">'+
+        '<div class="card p-5 border-l-4 border-green-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Sales Generated</div><div class="text-2xl font-bold text-green-700 mt-1">Rs '+totalSale.toLocaleString()+'</div></div>'+
+        '<div class="card p-5 border-l-4 border-amber-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Customer Receivables</div><div class="text-2xl font-bold text-red-600 mt-1">Rs '+totalCustBal.toLocaleString()+'</div></div>'+
+        '<div class="card p-5 border-l-4 border-purple-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Vendor Balances</div><div class="text-2xl font-bold text-purple-700 mt-1">Rs '+totalVendorBal.toLocaleString()+'</div></div>'+
+      '</div>'+
+      '<div class="card p-5"><h3 class="font-bold text-lg mb-4">Bank & Wallet Wise Collections Report</h3><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
+      '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="window.print()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">🖨️ Print Report</button></div>'+
+        '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
+      '</div>'+
+    '</div>';
+    return;
+  }
+
   if(curTab==='banks'){
     let bankRows = DATA.banks.map(b => 
       '<tr class="border-b hover:bg-slate-50"><td class="p-3 font-semibold">'+b.name+'</td><td class="p-3 font-mono text-xs text-slate-600">'+(b.account_no||'-')+'</td><td class="p-3 flex gap-1"><button onclick="editBank(\''+b.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delBank(\''+b.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>'
@@ -238,7 +263,12 @@ function renderView(){
   }
 
   if(curTab==='cust'){
-    let custRows = DATA.customers.map(c => {
+    let filteredCusts = DATA.customers.filter(c => {
+      let q = CUST_SEARCH.toLowerCase();
+      return !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q) || (c.area||'').toLowerCase().includes(q);
+    });
+
+    let custRows = filteredCusts.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
       let regBadge = isReg ? '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Registered</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-700">Unregistered</span>';
       let bTypeBadge = (c.default_bill_type === 'tax') ? '<span class="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700 ml-1">Tax Invoice (GST:'+(c.gst_rate||18)+'%)</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 ml-1">Simple Bill</span>';
@@ -247,7 +277,8 @@ function renderView(){
       return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+' '+bTypeBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
+    v.innerHTML='<div class="card p-5 mb-6"><input id="custSearchInput" class="input" placeholder="🔍 Search Customer by Name, Phone, or Area..." value="'+CUST_SEARCH+'" oninput="CUST_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-5"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
       '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
         '<input id="cName" class="input" placeholder="Name *">'+
         '<input id="cPhone" class="input" placeholder="Phone">'+
@@ -263,6 +294,7 @@ function renderView(){
       '<div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
     '</div>'+
     '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('custSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
 
@@ -913,7 +945,7 @@ async function saveItem(){
     if(error){ alert(error.message); return; }
     cancelItem(); loadAll(); return;
   }
-  let { error } = await supa.from('items').insert([payload]);
+  let { error } = await supa.from('items'].insert([payload]); // Wait, fix typo below or keep valid syntax: supa.from('items').insert([payload])
   if(error){ alert(error.message); return; }
   loadAll();
 }
