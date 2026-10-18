@@ -36,16 +36,19 @@ const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[]};
-let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null;
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[]};
+let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '';
+let SELECTED_SALESMAN_ID = '';
+
 const TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
+  {id:'salesman',label:'Salesmen',icon:'👨‍💼'},
   {id:'reports',label:'Reports',icon:'📈'},
   {id:'banks',label:'Banks & Accounts',icon:'🏦'},
   {id:'item',label:'Items',icon:'📦'},
@@ -83,13 +86,14 @@ function toggleMobileMenu(){
 async function safeLoad(table){
   try{
     let res;
-    if(table==='bills') res = await supa.from('bills').select('*, customers(name, area)').order('created_at',{ascending:false}).limit(300);
+    if(table==='bills') res = await supa.from('bills').select('*, customers(name, area), salesmen(name)').order('created_at',{ascending:false}).limit(300);
     else if(table==='companies') res = await supa.from('companies').select('*').order('name');
     else if(table==='vendor_ledgers') res = await supa.from('vendor_ledgers').select('*').order('entry_date',{ascending:true});
     else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').order('date',{ascending:true});
     else if(table==='banks') res = await supa.from('banks').select('*').order('name');
     else if(table==='customers') res = await supa.from('customers').select('*').order('name');
     else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').order('created_at',{ascending:false});
+    else if(table==='salesmen') res = await supa.from('salesmen').select('*').order('name');
     else res = await supa.from('items').select('*').order('name');
     if(res.error){console.warn(table,res.error.message); return [];}
     return res.data||[];
@@ -106,6 +110,7 @@ async function loadAll(){
   DATA.cust_ledgers = await safeLoad('customer_ledger');
   DATA.banks = await safeLoad('banks');
   DATA.purchases = await safeLoad('purchases');
+  DATA.salesmen = await safeLoad('salesmen');
   renderView();
 }
 
@@ -194,6 +199,25 @@ function renderView(){
     return;
   }
 
+  if(curTab==='salesman'){
+    let filteredSalesmen = DATA.salesmen.filter(s => {
+      let q = SALESMAN_SEARCH.toLowerCase();
+      return !q || (s.name||'').toLowerCase().includes(q) || (s.phone||'').toLowerCase().includes(q);
+    });
+
+    let smRows = filteredSalesmen.map(s => {
+      let isActive = s.is_active === true || String(s.is_active) === 'true';
+      let statusBadge = isActive ? '<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>' : '<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Non-Active</span>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+s.name+'<div class="text-xs text-slate-400">'+(s.phone||'-')+'</div></td><td class="p-3"><label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" '+(isActive?'checked':'')+' onchange="toggleSalesmanStatus(\''+s.id+'\', this.checked)"> '+statusBadge+'</label></td><td class="p-3 flex gap-1"><button onclick="editSalesman(\''+s.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delSalesman(\''+s.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
+    }).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">Koi salesman add nahi hai</td></tr>';
+
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="smTitle" class="font-bold mb-3">Add Salesman</h3><div class="grid md:grid-cols-2 gap-3"><input id="smName" class="input" placeholder="Salesman Name *"><input id="smPhone" class="input" placeholder="Phone"></div><div class="flex gap-2 mt-4"><button id="smBtn" onclick="saveSalesman()" class="btn-green flex-1">Save Salesman</button><button id="smCancel" onclick="cancelSalesman()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    '<div class="card p-5 mb-6"><input id="smSearchInput" class="input" placeholder="🔍 Search Salesman by Name or Phone..." value="'+SALESMAN_SEARCH+'" oninput="SALESMAN_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Salesman Name & Phone</th><th class="p-3 text-left">Status (Active / Non-Active)</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+smRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('smSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+    return;
+  }
+
   if(curTab==='reports'){
     let totalSale = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
@@ -212,7 +236,7 @@ function renderView(){
       '</div>'+
       '<div class="card p-5"><h3 class="font-bold text-lg mb-4">Bank & Wallet Wise Collections Report</h3><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
       '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="window.print()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">🖨️ Print Report</button></div>'+
-        '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
+        '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Salesmen: <b>'+DATA.salesmen.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
       '</div>'+
     '</div>';
     return;
@@ -391,12 +415,13 @@ function renderView(){
     let billRows = filteredBills.map(b => {
       let cName = b.customers?.name || '-';
       let cArea = b.customers?.area || '-';
+      let sName = b.salesmen?.name || '-';
       let bType = b.bill_type === 'tax' ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">TAX</span>' : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">SIMPLE</span>';
       return '<tr class="border-b hover:bg-slate-50">'+
         '<td class="p-3 text-center"><input type="checkbox" class="inv-checkbox" value="'+b.id+'"></td>'+
         '<td class="p-3 font-mono text-xs">'+b.invoice_no+'</td>'+
         '<td class="p-3 text-xs">'+new Date(b.created_at).toLocaleDateString()+'</td>'+
-        '<td class="p-3 font-semibold">'+cName+'</td>'+
+        '<td class="p-3 font-semibold">'+cName+'<div class="text-[10px] text-slate-400">Salesman: '+sName+'</div></td>'+
         '<td class="p-3 text-xs text-slate-600">'+cArea+'</td>'+
         '<td class="p-3">'+bType+'</td>'+
         '<td class="p-3 font-bold">Rs '+Number(b.total_amount||0).toLocaleString()+'</td>'+
@@ -418,7 +443,7 @@ function renderView(){
       '</select>'+
     '</div>'+
     '<div class="mb-3"><button onclick="printSelectedInvoices()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold shadow hover:bg-slate-800">🖨️ Print Selected Bills</button></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Customer</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Customer & Salesman</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
     return;
   }
 
@@ -461,6 +486,9 @@ function renderView(){
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
       return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
     }).join('');
+    
+    let salesmanOptions = DATA.salesmen.filter(s => s.is_active === true || String(s.is_active) === 'true').map(s => '<option value="'+s.id+'">'+s.name+'</option>').join('');
+
     let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
       '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.price * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
@@ -471,6 +499,7 @@ function renderView(){
       '<div class="card p-5 md:col-span-1 space-y-4">'+
         editNotice+
         '<h3 class="font-bold text-lg border-b pb-2">'+(EDIT_BILL_ID ? 'Edit Sale Invoice' : 'New Sale Invoice')+'</h3>'+
+        '<div><label class="text-xs font-semibold text-slate-500">Select Salesman * (Mandatory)</label><select id="saleSalesman" onchange="SELECTED_SALESMAN_ID=this.value;" class="input mt-1 border-green-500 bg-green-50/30"><option value="">Select Salesman</option>'+salesmanOptions+'</select></div>'+
         '<div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" onchange="onSaleCustChange()" class="input mt-1"><option value="">Select Customer</option>'+custOptions+'</select></div>'+
         '<div><label class="text-xs font-semibold text-slate-500">Bill Type / Tax Mode (Auto from Customer)</label><select id="saleBillType" disabled class="input mt-1 bg-slate-100 cursor-not-allowed"><option value="simple">Simple Bill (No Tax)</option><option value="tax">Tax Invoice (GST + Extra Tax)</option></select></div>'+
         '<div class="border-t pt-4 space-y-3">'+
@@ -499,9 +528,60 @@ function renderView(){
         '</div>'+
       '</div>'+
     '</div>';
-    setTimeout(calculateSaleTotals, 50);
+    setTimeout(()=>{
+      if(SELECTED_SALESMAN_ID && document.getElementById('saleSalesman')){
+        document.getElementById('saleSalesman').value = SELECTED_SALESMAN_ID;
+      }
+      calculateSaleTotals();
+    }, 50);
     return;
   }
+}
+
+async function saveSalesman(){
+  let name = document.getElementById('smName').value.trim();
+  if(!name) return alert('Salesman Name likhein!');
+  let payload = { name: name, phone: document.getElementById('smPhone').value, is_active: true };
+  if(EDIT_SALESMAN_ID){
+    let { error } = await supa.from('salesmen').update(payload).eq('id', EDIT_SALESMAN_ID);
+    if(error){ alert(error.message); return; }
+    cancelSalesman(); loadAll(); return;
+  }
+  let { error } = await supa.from('salesmen').insert([payload]);
+  if(error){ alert(error.message); return; }
+  cancelSalesman(); loadAll();
+}
+
+function editSalesman(id){
+  let s = DATA.salesmen.find(x => String(x.id) === String(id));
+  EDIT_SALESMAN_ID = id;
+  document.getElementById('smName').value = s.name || '';
+  document.getElementById('smPhone').value = s.phone || '';
+  document.getElementById('smTitle').innerText = 'Edit Salesman';
+  document.getElementById('smBtn').innerText = 'Update Salesman';
+  document.getElementById('smCancel').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelSalesman(){
+  EDIT_SALESMAN_ID = null;
+  ['smName', 'smPhone'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  document.getElementById('smTitle').innerText = 'Add Salesman';
+  document.getElementById('smBtn').innerText = 'Save Salesman';
+  document.getElementById('smCancel').classList.add('hidden');
+}
+
+async function toggleSalesmanStatus(id, status){
+  let { error } = await supa.from('salesmen').update({ is_active: status }).eq('id', id);
+  if(error){ alert(error.message); return; }
+  await loadAll();
+}
+
+async function delSalesman(id){
+  if(!confirm('Delete salesman?')) return;
+  let { error } = await supa.from('salesmen').delete().eq('id', id);
+  if(error){ alert('Error: ' + error.message); return; }
+  loadAll();
 }
 
 function onSaleCustChange(){
@@ -602,8 +682,9 @@ function printInvoice(id) {
   try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e) { items = []; }
   let cName = b.customers?.name || 'Walk-in Customer';
   let cArea = b.customers?.area || '-';
+  let sName = b.salesmen?.name || '-';
   let printWindow = window.open('', '_blank', 'width=800,height=600');
-  printWindow.document.write('<html><head><title>Invoice - ' + b.invoice_no + '</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.header{text-align:center;margin-bottom:20px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:20px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}th{background-color:#f2f2f2}.total{text-align:right;font-size:16px;font-weight:bold}</style></head><body><div class="header"><h2>QNH ENTERPRISES</h2><p>Distribution System - Invoice</p></div><div class="invoice-info"><div><p><b>Invoice No:</b> ' + b.invoice_no + '</p><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p><p><b>Type:</b> ' + (b.bill_type || 'simple').toUpperCase() + '</p></div></div><table><thead><tr><th>Item Name</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Grand Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
+  printWindow.document.write('<html><head><title>Invoice - ' + b.invoice_no + '</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.header{text-align:center;margin-bottom:20px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:20px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}th{background-color:#f2f2f2}.total{text-align:right;font-size:16px;font-weight:bold}</style></head><body><div class="header"><h2>QNH ENTERPRISES</h2><p>Distribution System - Invoice</p></div><div class="invoice-info"><div><p><b>Invoice No:</b> ' + b.invoice_no + '</p><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p><p><b>Type:</b> ' + (b.bill_type || 'simple').toUpperCase() + '</p></div></div><table><thead><tr><th>Item Name</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Grand Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
   printWindow.document.close();
 }
 
@@ -624,7 +705,8 @@ function printSelectedInvoices() {
     try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e){}
     let cName = b.customers?.name || 'Customer';
     let cArea = b.customers?.area || '';
-    htmlContent += '<div class="invoice-page"><div class="header"><h2>QNH ENTERPRISES</h2><p>Invoice: ' + b.invoice_no + '</p></div><div class="invoice-info"><div><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p></div></div><table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><hr style="margin-top:30px; border: 1px dashed #ccc;"></div>';
+    let sName = b.salesmen?.name || '';
+    htmlContent += '<div class="invoice-page"><div class="header"><h2>QNH ENTERPRISES</h2><p>Invoice: ' + b.invoice_no + '</p></div><div class="invoice-info"><div><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p></div></div><table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><hr style="margin-top:30px; border: 1px dashed #ccc;"></div>';
   });
   htmlContent += '<script>window.onload=function(){window.print();}<\/script></body></html>';
   printWindow.document.write(htmlContent);
@@ -647,7 +729,6 @@ function onSaleItemChange(){
   }
   document.getElementById('salePrice').value = rateToSet;
 
-  // Loss Prevention Check
   let lastPurchaseCost = getLastPurchaseRate(itemId) || it.purchase_cost || 0;
   if(Number(rateToSet) < Number(lastPurchaseCost)){
     alert('⚠️ WARNING (Loss Alert): Is item ka naya purchase cost/rate (Rs ' + lastPurchaseCost + ') zyada hai, aur aap yeh is se kam rate (Rs ' + rateToSet + ') par sale kar rahe hain!');
@@ -678,7 +759,6 @@ function addItemToSale(){
 
 function removeSaleItem(index){
   let curCust = document.getElementById('saleCust') ? document.getElementById('saleCust').value : '';
-  let billType = document.getElementById('saleBillType') ? document.getElementById('saleBillType').value : '';
   SALE_ITEMS.splice(index, 1);
   renderView();
   if (document.getElementById('saleCust') && curCust) {
@@ -803,6 +883,7 @@ function editBill(id){
   let b = DATA.bills.find(x => String(x.id) === String(id));
   if(!b) return alert('Bill nahi mila!');
   EDIT_BILL_ID = id;
+  SELECTED_SALESMAN_ID = b.salesman_id || '';
   if(b.items) {
     try {
       SALE_ITEMS = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
@@ -813,8 +894,10 @@ function editBill(id){
   setTimeout(() => {
     let cEl = document.getElementById('saleCust');
     let tEl = document.getElementById('saleBillType');
+    let sEl = document.getElementById('saleSalesman');
     if(cEl && b.customer_id) cEl.value = String(b.customer_id);
     if(tEl && b.bill_type) tEl.value = String(b.bill_type);
+    if(sEl && b.salesman_id) sEl.value = String(b.salesman_id);
     calculateSaleTotals();
   }, 150);
 }
@@ -826,10 +909,14 @@ function cancelBillEdit(){
 }
 
 async function saveFinalBill(){
+  let salesmanId = document.getElementById('saleSalesman')?.value;
+  if(!salesmanId) return alert('Kripya Salesman select karein (Mandatory hai)!');
+  
   let totals = calculateSaleTotals();
   if(!totals) return;
   if(!totals.custId) return alert('Pehle Customer select karein!');
   if(SALE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
+  
   let invNo;
   if(EDIT_BILL_ID) {
     let existingBill = DATA.bills.find(b => String(b.id) === String(EDIT_BILL_ID));
@@ -837,7 +924,7 @@ async function saveFinalBill(){
   } else {
     invNo = await getNextInvoiceNumber(totals.billType);
   }
-  let payload = { customer_id: totals.custId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(SALE_ITEMS) };
+  let payload = { customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(SALE_ITEMS) };
   let res;
   if(EDIT_BILL_ID) {
     res = await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID);
@@ -864,7 +951,7 @@ async function saveFinalBill(){
   SALE_ITEMS = [];
   EDIT_BILL_ID = null;
   await loadAll();
-  openTab('history');
+  openTab('sale'); // Stay on sale tab and keep salesman selected
 }
 
 function openLedger(id){ CUR_COMPANY = id; curTab = 'ledger'; document.getElementById('pageTitle').innerText = 'Vendor Ledger'; renderView(); }
@@ -923,7 +1010,7 @@ function editComp(id){
 
 function cancelComp(){
   EDIT_COMP_ID = null;
-  ['compName', 'compPhone', 'compAddr', 'compOpen'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  ['compName', 'compPhone', 'compAddr', 'compOpen'].forEach(i => document.getElementById(i).value = '');
   document.getElementById('compTitle').innerText = 'Add Vendor';
   document.getElementById('compBtn').innerText = 'Save Vendor';
   document.getElementById('compCancel').classList.add('hidden');
