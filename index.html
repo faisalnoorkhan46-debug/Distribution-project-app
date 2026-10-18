@@ -945,7 +945,7 @@ async function saveItem(){
     if(error){ alert(error.message); return; }
     cancelItem(); loadAll(); return;
   }
-  let { error } = await supa.from('items'].insert([payload]); // Wait, fix typo below or keep valid syntax: supa.from('items').insert([payload])
+  let { error } = await supa.from('items').insert([payload]);
   if(error){ alert(error.message); return; }
   loadAll();
 }
