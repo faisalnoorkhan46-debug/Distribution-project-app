@@ -208,12 +208,12 @@ function renderView(){
     let smRows = filteredSalesmen.map(s => {
       let isActive = s.is_active === true || String(s.is_active) === 'true';
       let statusBadge = isActive ? '<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>' : '<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Non-Active</span>';
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+s.name+'<div class="text-xs text-slate-400">'+(s.phone||'-')+'</div></td><td class="p-3"><label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" '+(isActive?'checked':'')+' onchange="toggleSalesmanStatus(\''+s.id+'\', this.checked)"> '+statusBadge+'</label></td><td class="p-3 flex gap-1"><button onclick="editSalesman(\''+s.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delSalesman(\''+s.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
-    }).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">Koi salesman add nahi hai</td></tr>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+s.name+'<div class="text-xs text-slate-400">'+(s.phone||'-')+'</div></td><td class="p-3 text-xs">Salary: <b>Rs '+(Number(s.salary||0)).toLocaleString()+'</b><br>Commission: <b>'+(s.commission_percent||0)+'%</b></td><td class="p-3"><label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" '+(isActive?'checked':'')+' onchange="toggleSalesmanStatus(\''+s.id+'\', this.checked)"> '+statusBadge+'</label></td><td class="p-3 flex gap-1"><button onclick="editSalesman(\''+s.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delSalesman(\''+s.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
+    }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi salesman add nahi hai</td></tr>';
 
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="smTitle" class="font-bold mb-3">Add Salesman</h3><div class="grid md:grid-cols-2 gap-3"><input id="smName" class="input" placeholder="Salesman Name *"><input id="smPhone" class="input" placeholder="Phone"></div><div class="flex gap-2 mt-4"><button id="smBtn" onclick="saveSalesman()" class="btn-green flex-1">Save Salesman</button><button id="smCancel" onclick="cancelSalesman()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="smTitle" class="font-bold mb-3">Add Salesman</h3><div class="grid md:grid-cols-4 gap-3"><input id="smName" class="input" placeholder="Salesman Name *"><input id="smPhone" class="input" placeholder="Phone"><input id="smSalary" type="number" class="input" placeholder="Salary"><input id="smCommission" type="number" step="0.01" class="input" placeholder="Commission %"></div><div class="flex gap-2 mt-4"><button id="smBtn" onclick="saveSalesman()" class="btn-green flex-1">Save Salesman</button><button id="smCancel" onclick="cancelSalesman()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
     '<div class="card p-5 mb-6"><input id="smSearchInput" class="input" placeholder="🔍 Search Salesman by Name or Phone..." value="'+SALESMAN_SEARCH+'" oninput="SALESMAN_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Salesman Name & Phone</th><th class="p-3 text-left">Status (Active / Non-Active)</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+smRows+'</tbody></table></div>';
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Salesman Name & Phone</th><th class="p-3 text-left">Salary & Commission</th><th class="p-3 text-left">Status (Active / Non-Active)</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+smRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('smSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
@@ -541,7 +541,13 @@ function renderView(){
 async function saveSalesman(){
   let name = document.getElementById('smName').value.trim();
   if(!name) return alert('Salesman Name likhein!');
-  let payload = { name: name, phone: document.getElementById('smPhone').value, is_active: true };
+  let payload = { 
+    name: name, 
+    phone: document.getElementById('smPhone').value, 
+    salary: Number(document.getElementById('smSalary').value || 0),
+    commission_percent: Number(document.getElementById('smCommission').value || 0),
+    is_active: true 
+  };
   if(EDIT_SALESMAN_ID){
     let { error } = await supa.from('salesmen').update(payload).eq('id', EDIT_SALESMAN_ID);
     if(error){ alert(error.message); return; }
@@ -557,6 +563,8 @@ function editSalesman(id){
   EDIT_SALESMAN_ID = id;
   document.getElementById('smName').value = s.name || '';
   document.getElementById('smPhone').value = s.phone || '';
+  document.getElementById('smSalary').value = s.salary || 0;
+  document.getElementById('smCommission').value = s.commission_percent || 0;
   document.getElementById('smTitle').innerText = 'Edit Salesman';
   document.getElementById('smBtn').innerText = 'Update Salesman';
   document.getElementById('smCancel').classList.remove('hidden');
@@ -565,7 +573,7 @@ function editSalesman(id){
 
 function cancelSalesman(){
   EDIT_SALESMAN_ID = null;
-  ['smName', 'smPhone'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  ['smName', 'smPhone', 'smSalary', 'smCommission'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   document.getElementById('smTitle').innerText = 'Add Salesman';
   document.getElementById('smBtn').innerText = 'Save Salesman';
   document.getElementById('smCancel').classList.add('hidden');
@@ -951,7 +959,7 @@ async function saveFinalBill(){
   SALE_ITEMS = [];
   EDIT_BILL_ID = null;
   await loadAll();
-  openTab('sale'); // Stay on sale tab and keep salesman selected
+  openTab('sale');
 }
 
 function openLedger(id){ CUR_COMPANY = id; curTab = 'ledger'; document.getElementById('pageTitle').innerText = 'Vendor Ledger'; renderView(); }
