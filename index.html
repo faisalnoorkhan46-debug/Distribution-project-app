@@ -26,7 +26,11 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 <script>
 const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
-const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: false
+  }
+});
 
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
