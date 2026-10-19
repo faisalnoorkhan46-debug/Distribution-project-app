@@ -39,7 +39,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 
 const TABS=[
@@ -435,9 +435,9 @@ function renderView(){
     }).join('') || '<tr><td colspan=8 class="p-8 text-center text-slate-400">Koi bill nahi mila</td></tr>';
 
     v.innerHTML='<div class="card p-4 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3 bg-white shadow-sm">'+
-      '<input id="histInv" class="input" placeholder="Search Invoice No..." value="'+HIST_FILTERS.inv+'" oninput="HIST_FILTERS.inv=this.value; renderView();">'+
+      '<input id="histInv" class="input" placeholder="Search Invoice No..." value="'+HIST_FILTERS.inv+'" oninput="HIST_FILTERS.inv=this.value; LAST_FOCUSED_HIST_ID=\'histInv\'; renderView();">'+
       '<input id="histDate" type="date" class="input" value="'+HIST_FILTERS.date+'" onchange="HIST_FILTERS.date=this.value; renderView();">'+
-      '<input id="histCust" class="input" placeholder="Search Customer..." value="'+HIST_FILTERS.cust+'" oninput="HIST_FILTERS.cust=this.value; renderView();">'+
+      '<input id="histCust" class="input" placeholder="Search Customer..." value="'+HIST_FILTERS.cust+'" oninput="HIST_FILTERS.cust=this.value; LAST_FOCUSED_HIST_ID=\'histCust\'; renderView();">'+
       '<select id="histType" class="input" onchange="HIST_FILTERS.type=this.value; renderView();">'+
         '<option value="" '+(HIST_FILTERS.type===''?'selected':'')+'>All Bill Types</option>'+
         '<option value="simple" '+(HIST_FILTERS.type==='simple'?'selected':'')+'>Simple Bill</option>'+
@@ -446,6 +446,14 @@ function renderView(){
     '</div>'+
     '<div class="mb-3"><button onclick="printSelectedInvoices()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold shadow hover:bg-slate-800">🖨️ Print Selected Bills</button></div>'+
     '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Customer & Salesman</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
+    
+    setTimeout(()=>{ 
+      let el = document.getElementById(LAST_FOCUSED_HIST_ID); 
+      if(el){ 
+        el.focus(); 
+        el.selectionStart = el.selectionEnd = el.value.length; 
+      } 
+    }, 50);
     return;
   }
 
