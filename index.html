@@ -27,18 +27,17 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
 const SUPABASE_URL = 'https://wihnucldbhnihuuklbww.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_k9UOze7QJsi39d14Z-Rozg__7y6-RAm';
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: false
-  }
+  auth: { persistSession: false }
 });
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[]};
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
 let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
+let CURRENT_USER_ROLE = 'user';
 
-const TABS=[
+let TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
@@ -50,6 +49,7 @@ const TABS=[
   {id:'item',label:'Items',icon:'📦'},
   {id:'company',label:'Vendors',icon:'🏢'}
 ];
+
 let curTab='dash';
 
 async function initAuth(){
@@ -57,18 +57,54 @@ async function initAuth(){
   if(!session){
     renderLoginScreen();
   } else {
-    renderMainLayout();
-    loadAll();
+    await checkUserPermissions(session.user);
   }
 
-  supa.auth.onAuthStateChange((event, session) => {
+  supa.auth.onAuthStateChange(async (event, session) => {
     if(!session){
       renderLoginScreen();
     } else {
-      renderMainLayout();
-      loadAll();
+      await checkUserPermissions(session.user);
     }
   });
+}
+
+async function checkUserPermissions(user){
+  let { data: profile } = await supa.from('profiles').select('*').eq('id', user.id).single();
+  
+  if(!profile){
+    await supa.from('profiles').insert([{ id: user.id, email: user.email, status: 'pending', role: 'user' }]);
+    renderPendingScreen("Aapka account create ho gaya hai. Super Admin ki approval ka intezar karein.");
+    return;
+  }
+
+  if(profile.status !== 'active'){
+    renderPendingScreen("Aapka account abhi 'Pending' status mein hai. Super Admin se active karwayein.");
+    return;
+  }
+
+  CURRENT_USER_ROLE = profile.role || 'user';
+  if(CURRENT_USER_ROLE === 'super_admin'){
+    if(!TABS.some(t => t.id === 'super_admin')){
+      TABS.push({id:'super_admin',label:'Super Admin Panel',icon:'🛡️'});
+    }
+  }
+
+  renderMainLayout();
+  loadAll();
+}
+
+function renderPendingScreen(msg){
+  document.getElementById('appContainer').innerHTML = `
+    <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+      <div class="card p-8 max-w-md w-full bg-white shadow-2xl rounded-2xl text-center space-y-4">
+        <div class="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto">⏳</div>
+        <h2 class="text-xl font-bold text-slate-800">Approval Required</h2>
+        <p class="text-sm text-slate-600">${msg}</p>
+        <button onclick="handleLogout()" class="btn-dark py-2.5 text-sm">Logout</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderLoginScreen(){
@@ -83,7 +119,7 @@ function renderLoginScreen(){
         <div class="space-y-4">
           <div>
             <label class="text-xs font-semibold text-slate-600">Email Address *</label>
-            <input id="loginEmail" type="email" class="input mt-1" value="faisalnoorkhan46@gmail.com" placeholder="Enter email">
+            <input id="loginEmail" type="email" class="input mt-1" placeholder="Enter email">
           </div>
           <div>
             <label class="text-xs font-semibold text-slate-600">Password *</label>
@@ -187,6 +223,7 @@ async function safeLoad(table){
     else if(table==='customers') res = await supa.from('customers').select('*').order('name');
     else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').order('created_at',{ascending:false});
     else if(table==='salesmen') res = await supa.from('salesmen').select('*').order('name');
+    else if(table==='profiles') res = await supa.from('profiles').select('*').order('email');
     else res = await supa.from('items').select('*').order('name');
     if(res.error){console.warn(table,res.error.message); return [];}
     return res.data||[];
@@ -205,6 +242,7 @@ async function loadAll(){
   DATA.banks = await safeLoad('banks');
   DATA.purchases = await safeLoad('purchases');
   DATA.salesmen = await safeLoad('salesmen');
+  DATA.all_users = await safeLoad('profiles');
   renderView();
 }
 
@@ -253,6 +291,18 @@ function getLastPurchaseRate(itemId){
 function renderView(){
   let v=document.getElementById('viewArea');
   if(!v) return;
+
+  if(curTab==='super_admin' && CURRENT_USER_ROLE === 'super_admin'){
+    let userRows = DATA.all_users.map(u => {
+      let isPending = u.status === 'pending';
+      let statusBadge = isPending ? '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Pending</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+u.email+'</td><td class="p-3">'+statusBadge+'</td><td class="p-3"><input type="date" id="sub_'+u.id+'" value="'+(u.subscription_end || '')+'" class="border rounded px-2 py-1 text-xs"></td><td class="p-3 flex gap-2"><button onclick="updateUserStatus(\''+u.id+'\', \'active\')" class="px-3 py-1 bg-green-600 text-white rounded text-xs font-bold">Approve / Active</button><button onclick="updateUserStatus(\''+u.id+'\', \'pending\')" class="px-3 py-1 bg-amber-500 text-white rounded text-xs font-bold">Set Pending</button><button onclick="saveSubDate(\''+u.id+'\')" class="px-3 py-1 bg-blue-600 text-white rounded text-xs font-bold">Save Sub</button></td></tr>';
+    }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi user nahi mila</td></tr>';
+
+    v.innerHTML='<div class="card p-5"><h3 class="font-bold text-lg mb-4">Super Admin - Registered Users Management</h3><div class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">User Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>'+userRows+'</tbody></table></div></div>';
+    return;
+  }
+
   if(curTab==='dash'){
     let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
@@ -641,6 +691,21 @@ function renderView(){
     }, 50);
     return;
   }
+}
+
+async function updateUserStatus(userId, status){
+  let { error } = await supa.from('profiles').update({ status: status }).eq('id', userId);
+  if(error){ alert(error.message); return; }
+  alert('User status update ho gaya!');
+  loadAll();
+}
+
+async function saveSubDate(userId){
+  let subDate = document.getElementById('sub_' + userId).value;
+  let { error } = await supa.from('profiles').update({ subscription_end: subDate || null }).eq('id', userId);
+  if(error){ alert(error.message); return; }
+  alert('Subscription date save ho gayi!');
+  loadAll();
 }
 
 async function saveSalesman(){
@@ -1248,7 +1313,6 @@ async function delItem(id){
   loadAll();
 }
 
-// Start app by initializing authentication check
 initAuth();
 setInterval(() => { document.querySelectorAll('a[href*="netlify"]').forEach(e => e.remove()); }, 1000);
 </script>
