@@ -33,7 +33,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 let CURRENT_USER_ROLE = 'user';
 
@@ -47,15 +47,12 @@ let ADMIN_TABS=[
 
 let USER_TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
-  {id:'sale',label:'New Sale',icon:'🧾'},
-  {id:'purchase',label:'New Purchase',icon:'🛒'},
-  {id:'history',label:'Sales History',icon:'📜'},
-  {id:'cust',label:'Customers',icon:'👥'},
-  {id:'salesman',label:'Salesmen',icon:'👨‍💼'},
+  {id:'staff',label:'Staff',icon:'👥'},
+  {id:'cust',label:'Customers',icon:'👤'},
+  {id:'sale',label:'Orders',icon:'🧾'},
   {id:'reports',label:'Reports',icon:'📈'},
-  {id:'banks',label:'Banks & Accounts',icon:'🏦'},
-  {id:'item',label:'Items',icon:'📦'},
-  {id:'company',label:'Vendors',icon:'🏢'}
+  {id:'settings',label:'Settings',icon:'⚙️'},
+  {id:'audit',label:'Audit Log',icon:'🕒'}
 ];
 
 let TABS = USER_TABS;
@@ -159,7 +156,6 @@ async function handleLogin(){
       btn.innerText = 'Login to System';
       btn.disabled = false;
     } else {
-      // Log audit
       await supa.from('audit_logs').insert([{ action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
     }
   } catch(e) {
@@ -175,7 +171,7 @@ async function handleLogout(){
 }
 
 function renderMainLayout(){
-  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : 'QNH System User';
+  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : 'Faisal Noor (Admin)';
   document.getElementById('appContainer').innerHTML = `
     <div class="flex min-h-screen">
       <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
@@ -286,30 +282,6 @@ function getCustBal(cid){
   return bal;
 }
 
-function getLastSaleRate(custId, itemId){
-  for(let b of DATA.bills){
-    if(String(b.customer_id) === String(custId)){
-      try{
-        let items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []);
-        let found = items.find(i => String(i.id) === String(itemId));
-        if(found) return Number(found.price);
-      }catch(e){}
-    }
-  }
-  return null;
-}
-
-function getLastPurchaseRate(itemId){
-  let lastCost = 0;
-  for(let p of DATA.purchases){
-    if(p.purchase_items){
-      let pi = p.purchase_items.find(x => String(x.item_id) === String(itemId));
-      if(pi){ lastCost = Number(pi.rate); break; }
-    }
-  }
-  return lastCost;
-}
-
 function renderView(){
   let v=document.getElementById('viewArea');
   if(!v) return;
@@ -323,10 +295,7 @@ function renderView(){
       let totalRevenue = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
 
       v.innerHTML = `
-        <div class="mb-6">
-          <h2 class="text-xl font-bold text-slate-800">Platform Dashboard</h2>
-          <p class="text-xs text-slate-500">System-wide metrics across all distribution accounts</p>
-        </div>
+        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Dashboard</h2><p class="text-xs text-slate-500">System-wide metrics across all distribution accounts</p></div>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Total Accounts</div><div class="text-2xl font-bold mt-1">${totalAccounts}</div></div>
           <div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Pending Approvals</div><div class="text-2xl font-bold mt-1">${pendingApprovals}</div></div>
@@ -334,131 +303,47 @@ function renderView(){
           <div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Total Revenue</div><div class="text-2xl font-bold mt-1">Rs ${totalRevenue.toLocaleString()}</div></div>
         </div>
         <div class="grid lg:grid-cols-2 gap-6 mb-6">
-          <div class="card p-5">
-            <h3 class="font-bold mb-3 text-sm">Accounts by Status</h3>
-            <div class="h-64 flex items-center justify-center"><canvas id="statusChart"></canvas></div>
-          </div>
-          <div class="card p-5">
-            <h3 class="font-bold mb-3 text-sm">Revenue by Plan</h3>
-            <div class="h-64 flex items-center justify-center"><canvas id="planChart"></canvas></div>
-          </div>
-        </div>
-        <div class="card p-5">
-          <h3 class="font-bold mb-3 text-sm">Active Users by Role</h3>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="bg-slate-50 p-3 rounded-xl border text-center"><div class="text-xs text-slate-500">Super Admin</div><div class="text-lg font-bold">${DATA.all_users.filter(u=>u.role==='super_admin').length}</div></div>
-            <div class="bg-slate-50 p-3 rounded-xl border text-center"><div class="text-xs text-slate-500">Regular Users</div><div class="text-lg font-bold">${DATA.all_users.filter(u=>u.role!=='super_admin').length}</div></div>
-          </div>
+          <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Accounts by Status</h3><div class="h-64 flex items-center justify-center"><canvas id="statusChart"></canvas></div></div>
+          <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Revenue by Plan</h3><div class="h-64 flex items-center justify-center"><canvas id="planChart"></canvas></div></div>
         </div>
       `;
-
       setTimeout(() => {
         let ctx1 = document.getElementById('statusChart')?.getContext('2d');
-        if(ctx1){
-          new Chart(ctx1, {
-            type: 'doughnut',
-            data: {
-              labels: ['Approved', 'Pending'],
-              datasets: [{ data: [activeUsers, pendingApprovals], backgroundColor: ['#16a34a', '#f59e0b'] }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-          });
-        }
+        if(ctx1) new Chart(ctx1, { type: 'doughnut', data: { labels: ['Approved', 'Pending'], datasets: [{ data: [activeUsers, pendingApprovals], backgroundColor: ['#16a34a', '#f59e0b'] }] }, options: { responsive: true, maintainAspectRatio: false } });
         let ctx2 = document.getElementById('planChart')?.getContext('2d');
-        if(ctx2){
-          new Chart(ctx2, {
-            type: 'bar',
-            data: {
-              labels: ['Enterprise', 'Professional', 'Starter'],
-              datasets: [{ label: 'Revenue', data: [totalRevenue, 12000, 5000], backgroundColor: '#0f172a' }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-          });
-        }
+        if(ctx2) new Chart(ctx2, { type: 'bar', data: { labels: ['Enterprise', 'Professional', 'Starter'], datasets: [{ label: 'Revenue', data: [totalRevenue, 12000, 5000], backgroundColor: '#0f172a' }] }, options: { responsive: true, maintainAspectRatio: false } });
       }, 50);
       return;
     }
-
     if(curTab === 'admin_accounts'){
-      let filteredUsers = DATA.all_users.filter(u => {
-        let q = ACCOUNTS_SEARCH.toLowerCase();
-        return !q || u.email.toLowerCase().includes(q);
-      });
-
-      let userRows = filteredUsers.map(u => {
-        let isPending = u.status === 'pending';
-        let statusBadge = isPending ? '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Pending</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Approved</span>';
-        return `
-          <tr class="border-b hover:bg-slate-50">
-            <td class="p-3 font-semibold">${u.email}<div class="text-xs text-slate-400">ID: ${u.id.substring(0,8)}...</div></td>
-            <td class="p-3">${statusBadge}</td>
-            <td class="p-3"><span class="px-2.5 py-1 bg-slate-100 rounded text-xs font-bold">${u.role || 'user'}</span></td>
-            <td class="p-3"><input type="date" id="sub_${u.id}" value="${u.subscription_end || ''}" class="border rounded px-2 py-1 text-xs"></td>
-            <td class="p-3 flex gap-2">
-              <button onclick="updateUserStatus('${u.id}', 'active')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700">Approve</button>
-              <button onclick="updateUserStatus('${u.id}', 'pending')" class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">Suspend</button>
-              <button onclick="saveSubDate('${u.id}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">Save</button>
-            </td>
-          </tr>
-        `;
-      }).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
-
-      v.innerHTML = `
-        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2><p class="text-xs text-slate-500">Review registrations and manage account subscriptions</p></div>
-        <div class="card p-5 mb-6"><input id="accountsSearchInput" class="input" placeholder="🔍 Search Account by Email..." value="${ACCOUNTS_SEARCH}" oninput="ACCOUNTS_SEARCH=this.value; renderView();"></div>
-        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role / Plan</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
-      `;
-      setTimeout(()=>{ let el = document.getElementById('accountsSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+      let filteredUsers = DATA.all_users.filter(u => !ACCOUNTS_SEARCH || u.email.toLowerCase().includes(ACCOUNTS_SEARCH.toLowerCase()));
+      let userRows = filteredUsers.map(u => `
+        <tr class="border-b hover:bg-slate-50">
+          <td class="p-3 font-semibold">${u.email}</td>
+          <td class="p-3">${u.status === 'pending' ? '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Pending</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Approved</span>'}</td>
+          <td class="p-3"><span class="px-2.5 py-1 bg-slate-100 rounded text-xs font-bold">${u.role || 'user'}</span></td>
+          <td class="p-3"><input type="date" id="sub_${u.id}" value="${u.subscription_end || ''}" class="border rounded px-2 py-1 text-xs"></td>
+          <td class="p-3 flex gap-2">
+            <button onclick="updateUserStatus('${u.id}', 'active')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold">Approve</button>
+            <button onclick="updateUserStatus('${u.id}', 'pending')" class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold">Suspend</button>
+            <button onclick="saveSubDate('${u.id}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Save</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
+      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2><p class="text-xs text-slate-500">Review registrations and manage account subscriptions</p></div><div class="card p-5 mb-6"><input class="input" placeholder="🔍 Search Account by Email..." value="${ACCOUNTS_SEARCH}" oninput="ACCOUNTS_SEARCH=this.value; renderView();"></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>`;
       return;
     }
-
-    if(curTab === 'admin_plans'){
-      v.innerHTML = `
-        <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Subscription Plans</h2><p class="text-xs text-slate-500">Define the tiers accounts can subscribe to</p></div><button onclick="alert('Feature coming soon!')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ New Plan</button></div>
-        <div class="card p-0 overflow-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Plan</th><th class="p-3 text-left">Monthly</th><th class="p-3 text-left">Max Users</th><th class="p-3 text-left">Features</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Action</th></tr></thead>
-            <tbody>
-              <tr class="border-b"><td class="p-3 font-semibold">Starter</td><td class="p-3">Rs 2,999</td><td class="p-3">5</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">billing</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">reports</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
-              <tr class="border-b"><td class="p-3 font-semibold">Professional</td><td class="p-3">Rs 5,999</td><td class="p-3">25</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">billing</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">reports</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">inventory</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
-              <tr><td class="p-3 font-semibold">Enterprise</td><td class="p-3">Rs 9,999</td><td class="p-3">Unlimited</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">all features</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">api</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
-            </tbody>
-          </table>
-        </div>
-      `;
-      return;
-    }
-
-    if(curTab === 'admin_settings'){
-      v.innerHTML = `
-        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Settings</h2><p class="text-xs text-slate-500">Global system configuration</p></div>
-        <div class="card p-6 space-y-4 max-w-2xl">
-          <h3 class="font-bold text-sm border-b pb-2">General Configuration</h3>
-          <div><label class="text-xs font-semibold text-slate-600">Platform Name</label><input type="text" class="input mt-1" value="QNH ENTERPRISES DISTRIBUTION"></div>
-          <div><label class="text-xs font-semibold text-slate-600">Support Email</label><input type="email" class="input mt-1" value="support@qnhdistribution.local"></div>
-          <div class="flex items-center gap-2 pt-2"><input type="checkbox" checked id="allowReg" class="w-4 h-4"><label class="text-sm font-medium text-slate-700" for="allowReg">Allow new accounts to register</label></div>
-          <div class="flex items-center gap-2"><input type="checkbox" id="maintMode" class="w-4 h-4"><label class="text-sm font-medium text-slate-700" for="maintMode">Maintenance mode banner</label></div>
-          <button onclick="alert('Settings saved successfully!')" class="btn-green mt-4 !w-auto px-6 py-2.5">Save settings</button>
-        </div>
-      `;
-      return;
-    }
-
-    if(curTab === 'admin_audit'){
+    if(curTab === 'admin_audit' || curTab === 'audit'){
       let auditRows = DATA.audit_logs.map(l => `
         <tr class="border-b hover:bg-slate-50">
           <td class="p-3 text-xs">${new Date(l.created_at || Date.now()).toLocaleString()}</td>
           <td class="p-3 font-semibold">${l.user_email || 'superadmin'}</td>
           <td class="p-3"><span class="px-2 py-1 rounded text-[10px] font-bold bg-green-100 text-green-700">${l.action}</span></td>
           <td class="p-3 text-xs">${l.entity || 'User'}</td>
-          <td class="p-3 font-mono text-xs text-slate-500">${l.ip || '10.31.242.5'}</td>
+          <td class="p-3 font-mono text-xs text-slate-500">${l.ip || '10.31.55.151'}</td>
         </tr>
       `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">No audit logs recorded yet</td></tr>';
-
-      v.innerHTML = `
-        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Audit Log</h2><p class="text-xs text-slate-500">Logins and administrative actions tracking</p></div>
-        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Time</th><th class="p-3 text-left">User</th><th class="p-3 text-left">Action</th><th class="p-3 text-left">Entity</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>
-      `;
+      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Audit Log</h2><p class="text-xs text-slate-500">Every action taken within your distribution</p></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">TIME</th><th class="p-3 text-left">USER</th><th class="p-3 text-left">ACTION</th><th class="p-3 text-left">ENTITY</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>`;
       return;
     }
   }
@@ -467,1010 +352,225 @@ function renderView(){
   if(curTab==='dash'){
     let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
-    let totalCustRecv = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
+    let todayOrdersCount = DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).length;
+    let newCustTodayCount = DATA.customers.filter(c=>c.created_at && new Date(c.created_at).toDateString()===new Date().toDateString()).length;
+    let simpleBillsCount = DATA.bills.filter(b => (b.bill_type || 'simple') === 'simple').length;
+    let taxBillsCount = DATA.bills.filter(b => b.bill_type === 'tax').length;
 
-    let modeTotals = { Cash: 0, Bank: 0, EasyPaisa: 0, JazzCash: 0, Others: 0 };
-    DATA.cust_ledgers.filter(l => l.type === 'payment').forEach(l => {
-      let bObj = DATA.banks.find(b => String(b.id) === String(l.bank_id));
-      let m = bObj ? bObj.name : (l.payment_mode || 'Cash');
-      if(modeTotals[m] !== undefined) modeTotals[m] += Number(l.credit || 0);
-      else modeTotals['Others'] += Number(l.credit || 0);
-    });
+    v.innerHTML = `
+      <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Dashboard</h2><p class="text-xs text-slate-500">Today at your distribution</p></div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Orders Today</div><div class="text-2xl font-bold mt-1">${todayOrdersCount}</div></div>
+        <div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500 uppercase font-bold">New Customers Today</div><div class="text-2xl font-bold mt-1">${newCustTodayCount}</div></div>
+        <div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Revenue Today</div><div class="text-2xl font-bold mt-1">Rs ${today.toLocaleString()}</div></div>
+        <div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Active Customers</div><div class="text-2xl font-bold mt-1">${DATA.customers.length}</div></div>
+      </div>
+      <div class="grid lg:grid-cols-2 gap-6 mb-6">
+        <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Salesman Workload (30 days)</h3><div class="h-64 flex items-center justify-center"><canvas id="salesmanChart"></canvas></div></div>
+        <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Bill Status Mix (30 days)</h3><div class="h-64 flex items-center justify-center"><canvas id="statusMixChart"></canvas></div></div>
+      </div>
+      <div class="card p-5"><div class="text-xs text-slate-500 uppercase font-bold">Revenue this month</div><div class="text-3xl font-bold text-slate-800 mt-1">Rs ${total.toLocaleString()}</div></div>
+    `;
 
-    let billsList = DATA.bills.slice(0,5).map(function(b){
-      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-      let cName = custObj ? custObj.name : '-';
-      return '<div class="flex justify-between p-2.5 bg-slate-50 rounded-xl text-sm"><span class="font-mono">'+b.invoice_no+'</span><span>'+cName+'</span><b>Rs '+Number(b.total_amount||0).toLocaleString()+'</b></div>';
-    }).join('') || 'No bills';
-
-    let vendorsList = DATA.companies.map(function(c){
-      let bal=getBal(c.id);
-      let cls = bal>=0 ? 'text-red-600' : 'text-green-600';
-      return '<div class="flex justify-between p-2 border-b text-sm"><span>'+c.name+'</span><b class="'+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</b></div>';
-    }).join('') || 'No vendors';
-
-    v.innerHTML='<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">'+
-      '<div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase">Total Sale</div><div class="text-2xl font-bold">Rs '+total.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500">Today Sale</div><div class="text-2xl font-bold">Rs '+today.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Banks</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.banks.length+'</div></div>'+
-    '</div>'+
-    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections Summary</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Cash / General</div><div class="text-lg font-bold text-green-600">Rs '+modeTotals.Cash.toLocaleString()+'</div></div>'+
-      '<div class="bg-slate-50 p-3 rounded-xl border"><div class="text-xs text-slate-500">Bank / Wallets</div><div class="text-lg font-bold text-blue-600">Rs '+(modeTotals.Bank + modeTotals.EasyPaisa + modeTotals.JazzCash + modeTotals.Others).toLocaleString()+'</div></div>'+
-    '</div></div>'+
-    '<div class="grid lg:grid-cols-3 gap-4">'+
-      '<div class="card p-5 lg:col-span-2"><h3 class="font-bold mb-3">Recent Bills</h3><div class="space-y-2">'+billsList+'</div></div>'+
-      '<div class="card p-5"><h3 class="font-bold mb-3">Top Vendors</h3>'+vendorsList+'</div>'+
-    '</div>';
+    setTimeout(() => {
+      let ctx1 = document.getElementById('salesmanChart')?.getContext('2d');
+      if(ctx1){
+        let smNames = DATA.salesmen.map(s => s.name);
+        let smCounts = DATA.salesmen.map(s => DATA.bills.filter(b => String(b.salesman_id) === String(s.id)).length);
+        if(smNames.length === 0){ smNames = ['No Salesman']; smCounts = [0]; }
+        new Chart(ctx1, { type: 'bar', data: { labels: smNames, datasets: [{ label: 'Orders Handled', data: smCounts, backgroundColor: '#0d9488' }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false } });
+      }
+      let ctx2 = document.getElementById('statusMixChart')?.getContext('2d');
+      if(ctx2){
+        new Chart(ctx2, { type: 'doughnut', data: { labels: ['Simple Bills', 'Tax Invoices'], datasets: [{ data: [simpleBillsCount || 1, taxBillsCount], backgroundColor: ['#8b5cf6', '#f59e0b'] }] }, options: { responsive: true, maintainAspectRatio: false } });
+      }
+    }, 50);
     return;
   }
 
-  if(curTab==='salesman'){
-    let filteredSalesmen = DATA.salesmen.filter(s => {
-      let q = SALESMAN_SEARCH.toLowerCase();
-      return !q || (s.name||'').toLowerCase().includes(q) || (s.city||'').toLowerCase().includes(q) || (s.area||'').toLowerCase().includes(q) || (s.phone||'').toLowerCase().includes(q);
-    });
+  if(curTab==='staff'){
+    let filteredStaff = DATA.salesmen.filter(s => !STAFF_SEARCH || (s.name||'').toLowerCase().includes(STAFF_SEARCH.toLowerCase()) || (s.phone||'').toLowerCase().includes(STAFF_SEARCH.toLowerCase()));
+    let staffRows = filteredStaff.map(s => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-semibold">${s.name}<div class="text-xs text-slate-400">${s.phone || '-'}</div></td>
+        <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">${s.role || 'Booker / Salesman'}</span></td>
+        <td class="p-3 text-xs">Salary: <b>Rs ${Number(s.salary||0).toLocaleString()}</b></td>
+        <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Active</span></td>
+        <td class="p-3 flex gap-1">
+          <button onclick="editSalesman('${s.id}')" class="px-2.5 py-1.5 bg-blue-600 text-white rounded text-xs font-bold">Edit</button>
+          <button onclick="delSalesman('${s.id}')" class="px-2.5 py-1.5 bg-red-500 text-white rounded text-xs font-bold">Deactivate</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">Koi staff add nahi hai</td></tr>';
 
-    let smRows = filteredSalesmen.map(s => {
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+s.name+'<div class="text-xs text-slate-400">'+(s.phone||'-')+'</div></td><td class="p-3 text-xs">'+(s.city||'-')+' / '+(s.area||'-')+'</td><td class="p-3 text-xs">Salary: <b>Rs '+(Number(s.salary||0)).toLocaleString()+'</b><br>Commission: <b>'+(s.commission||0)+'%</b></td><td class="p-3 flex gap-1"><button onclick="editSalesman(\''+s.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delSalesman(\''+s.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
-    }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi salesman add nahi hai</td></tr>';
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Staff Management</h2><p class="text-xs text-slate-500">Invite and manage your distribution team</p></div><button onclick="openTab('salesman')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Add staff</button></div>
+      <div class="card p-5 mb-6"><input class="input" placeholder="🔍 Search Staff by Name or Phone..." value="${STAFF_SEARCH}" oninput="STAFF_SEARCH=this.value; renderView();"></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">NAME</th><th class="p-3 text-left">ROLE</th><th class="p-3 text-left">DETAILS</th><th class="p-3 text-left">STATUS</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${staffRows}</tbody></table></div>
+    `;
+    return;
+  }
 
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="smTitle" class="font-bold mb-3">Add Salesman</h3><div class="grid md:grid-cols-3 gap-3 mb-3"><input id="smName" class="input" placeholder="Salesman Name *"><input id="smPhone" class="input" placeholder="Phone"><input id="smCity" class="input" placeholder="City"></div><div class="grid md:grid-cols-3 gap-3"><input id="smArea" class="input" placeholder="Area"><input id="smSalary" type="number" class="input" placeholder="Salary"><input id="smCommission" type="number" step="0.01" class="input" placeholder="Commission %"></div><div class="flex gap-2 mt-4"><button id="smBtn" onclick="saveSalesman()" class="btn-green flex-1">Save Salesman</button><button id="smCancel" onclick="cancelSalesman()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-5 mb-6"><input id="smSearchInput" class="input" placeholder="🔍 Search Salesman by Name, City, Area, or Phone..." value="'+SALESMAN_SEARCH+'" oninput="SALESMAN_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Salesman Name & Phone</th><th class="p-3 text-left">City / Area</th><th class="p-3 text-left">Salary & Commission</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+smRows+'</tbody></table></div>';
-    setTimeout(()=>{ let el = document.getElementById('smSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+  if(curTab==='cust'){
+    let filteredCusts = DATA.customers.filter(c => !CUST_SEARCH || (c.name||'').toLowerCase().includes(CUST_SEARCH.toLowerCase()) || (c.phone||'').toLowerCase().includes(CUST_SEARCH.toLowerCase()));
+    let custRows = filteredCusts.map(c => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-semibold">${c.name}<div class="text-xs text-slate-400">${c.phone || '-'}</div></td>
+        <td class="p-3">${c.area || '-'}</td>
+        <td class="p-3 font-bold text-red-600">Rs ${getCustBal(c.id).toLocaleString()}</td>
+        <td class="p-3 flex gap-1">
+          <button onclick="openCustLedger('${c.id}')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button>
+          <button onclick="editCust('${c.id}')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️</button>
+          <button onclick="delCust('${c.id}')" class="px-2.5 py-1 bg-red-500 text-white rounded text-xs">X</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi customer nahi mila</td></tr>';
+
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Customers</h2><p class="text-xs text-slate-500">Search and manage customer records</p></div><button onclick="openTab('cust')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Register customer</button></div>
+      <div class="card p-5 mb-6"><input class="input" placeholder="🔍 Search Customer by Name or Phone..." value="${CUST_SEARCH}" oninput="CUST_SEARCH=this.value; renderView();"></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">CUSTOMER</th><th class="p-3 text-left">AREA</th><th class="p-3 text-left">BALANCE</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${custRows}</tbody></table></div>
+    `;
+    return;
+  }
+
+  if(curTab==='sale'){
+    let custOptions = DATA.customers.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
+    let salesmanOptions = DATA.salesmen.map(s => '<option value="'+s.id+'">'+s.name+'</option>').join('');
+    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
+    let saleRows = SALE_ITEMS.map((item, idx) => `
+      <tr class="border-b"><td class="p-3 font-semibold">${item.name}</td><td class="p-3">Rs ${item.price}</td><td class="p-3">${item.qty}</td><td class="p-3 font-bold">Rs ${(item.price * item.qty).toLocaleString()}</td><td class="p-3 text-center"><button onclick="removeSaleItem(${idx})" class="text-red-500 font-bold px-2">✕</button></td></tr>
+    `).join('');
+
+    v.innerHTML = `
+      <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Orders & Billing</h2><p class="text-xs text-slate-500">Create new sale order or invoice</p></div>
+      <div class="grid md:grid-cols-3 gap-6">
+        <div class="card p-5 md:col-span-1 space-y-4">
+          <div><label class="text-xs font-semibold text-slate-500">Select Salesman / Booker *</label><select id="saleSalesman" onchange="SELECTED_SALESMAN_ID=this.value;" class="input mt-1"><option value="">Select Booker</option>${salesmanOptions}</select></div>
+          <div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" class="input mt-1"><option value="">Select Customer</option>${custOptions}</select></div>
+          <div class="border-t pt-4 space-y-3">
+            <div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="saleItem" onchange="onSaleItemChange()" class="input mt-1"><option value="">Select Item</option>${itemOptions}</select></div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="text-xs font-semibold text-slate-500">Price (Rs)</label><input id="salePrice" type="number" class="input mt-1" placeholder="0"></div>
+              <div><label class="text-xs font-semibold text-slate-500">Quantity</label><input id="saleQty" type="number" class="input mt-1" value="1" min="1"></div>
+            </div>
+            <button onclick="addItemToSale()" class="btn-dark mt-2">+ Add Item</button>
+          </div>
+        </div>
+        <div class="card p-5 md:col-span-2 flex flex-col justify-between">
+          <div>
+            <h3 class="font-bold text-lg border-b pb-2 mb-4">Order Items (${SALE_ITEMS.length})</h3>
+            <div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Price</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>${saleRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">No items added</td></tr>'}</tbody></table></div>
+          </div>
+          <div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl flex justify-between items-center">
+            <div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600" id="lblGrandTotal">Rs 0</div></div>
+            <button onclick="saveFinalBill()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">Complete & Save Order</button>
+          </div>
+        </div>
+      </div>
+    `;
+    setTimeout(() => { if(SELECTED_SALESMAN_ID && document.getElementById('saleSalesman')) document.getElementById('saleSalesman').value = SELECTED_SALESMAN_ID; calculateSaleTotals(); }, 50);
     return;
   }
 
   if(curTab==='reports'){
     let totalSale = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
-    let totalVendorBal = DATA.companies.reduce((sum, c) => sum + getBal(c.id), 0);
-    
-    let collectionsList = DATA.banks.map(b => {
-      let bTotal = DATA.cust_ledgers.filter(l => String(l.bank_id) === String(b.id)).reduce((s,l)=>s+Number(l.credit||0),0);
-      return '<div class="flex justify-between p-3 bg-slate-50 rounded-xl border text-sm"><span class="font-semibold">'+b.name+' <span class="text-xs text-slate-400">('+b.account_no+')</span></span><b class="text-blue-600">Rs '+bTotal.toLocaleString()+'</b></div>';
-    }).join('') || '<div class="text-slate-400 text-sm">Koi bank account add nahi hai</div>';
-
-    v.innerHTML='<div class="space-y-6">'+
-      '<div class="grid md:grid-cols-3 gap-4">'+
-        '<div class="card p-5 border-l-4 border-green-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Sales Generated</div><div class="text-2xl font-bold text-green-700 mt-1">Rs '+totalSale.toLocaleString()+'</div></div>'+
-        '<div class="card p-5 border-l-4 border-amber-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Customer Receivables</div><div class="text-2xl font-bold text-red-600 mt-1">Rs '+totalCustBal.toLocaleString()+'</div></div>'+
-        '<div class="card p-5 border-l-4 border-purple-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Vendor Balances</div><div class="text-2xl font-bold text-purple-700 mt-1">Rs '+totalVendorBal.toLocaleString()+'</div></div>'+
-      '</div>'+
-      '<div class="card p-5"><h3 class="font-bold text-lg mb-4">Bank & Wallet Wise Collections Report</h3><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
-      '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="window.print()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">🖨️ Print Report</button></div>'+
-        '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Salesmen: <b>'+DATA.salesmen.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
-      '</div>'+
-    '</div>';
+    v.innerHTML = `
+      <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Reports</h2><p class="text-xs text-slate-500">Analytics and financials</p></div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="card p-5 border-l-4 border-green-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Sales Generated</div><div class="text-2xl font-bold text-green-700 mt-1">Rs ${totalSale.toLocaleString()}</div></div>
+        <div class="card p-5 border-l-4 border-amber-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Receivables</div><div class="text-2xl font-bold text-red-600 mt-1">Rs ${totalCustBal.toLocaleString()}</div></div>
+      </div>
+    `;
     return;
   }
 
-  if(curTab==='banks'){
-    let bankRows = DATA.banks.map(b => 
-      '<tr class="border-b hover:bg-slate-50"><td class="p-3 font-semibold">'+b.name+'</td><td class="p-3 font-mono text-xs text-slate-600">'+(b.account_no||'-')+'</td><td class="p-3 flex gap-1"><button onclick="editBank(\''+b.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delBank(\''+b.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>'
-    ).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">Abhi koi bank add nahi hua</td></tr>';
-
-    v.innerHTML='<div class="card p-5"><h3 id="bankTitle" class="font-bold mb-3">Add Bank / Wallet Account</h3><div class="grid md:grid-cols-2 gap-3"><input id="bName" class="input" placeholder="Bank / Wallet Name (e.g. Meezan Bank, EasyPaisa) *"><input id="bAcc" class="input" placeholder="Account Number / Title"></div><div class="flex gap-2 mt-4"><button id="bankBtn" onclick="saveBank()" class="btn-green flex-1">Save Bank</button><button id="bankCancel" onclick="cancelBank()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-0 mt-6 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Bank / Wallet Name</th><th class="p-3 text-left">Account No</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+bankRows+'</tbody></table></div>';
+  if(curTab==='settings'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Business Settings</h2><p class="text-xs text-slate-500">Profile, hours, and preferences</p></div><button onclick="alert('Settings saved successfully!')" class="bg-green-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold">Save changes</button></div>
+      <div class="card p-6 space-y-4 max-w-2xl">
+        <div><label class="text-xs font-semibold text-slate-600">Company Name</label><input type="text" class="input mt-1" value="QNH ENTERPRISES"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-xs font-semibold text-slate-600">Phone</label><input type="text" class="input mt-1" value="03161318660"></div>
+          <div><label class="text-xs font-semibold text-slate-600">Email</label><input type="email" class="input mt-1" value="faisalnoorkhan46@gmail.com"></div>
+        </div>
+        <div><label class="text-xs font-semibold text-slate-600">Address</label><input type="text" class="input mt-1" value="Rwp"></div>
+      </div>
+    `;
     return;
   }
 
-  if(curTab==='purchase'){
-    let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
-    let itemOptions = DATA.items.map(i => {
-      let lastCost = getLastPurchaseRate(i.id) || i.purchase_cost || 0;
-      return '<option value="'+i.id+'" data-cost="'+lastCost+'">'+i.name+' (Last Cost: Rs '+lastCost+')</option>';
-    }).join('');
-    let purchaseRows = PURCHASE_ITEMS.map((item, idx) => 
-      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.rate+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.rate * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removePurchaseItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
-    ).join('');
-    let pGrandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
+  if(curTab==='audit'){
+    let auditRows = DATA.audit_logs.map(l => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 text-xs">${new Date(l.created_at || Date.now()).toLocaleString()}</td>
+        <td class="p-3 font-semibold">${l.user_email || 'FAISAL'}</td>
+        <td class="p-3"><span class="px-2 py-1 rounded text-[10px] font-bold bg-green-100 text-green-700">${l.action}</span></td>
+        <td class="p-3 text-xs">${l.entity || 'User'}</td>
+        <td class="p-3 font-mono text-xs text-slate-500">${l.ip || '10.31.55.151'}</td>
+      </tr>
+    `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">No audit logs recorded yet</td></tr>';
 
-    v.innerHTML='<div class="grid md:grid-cols-3 gap-6">'+
-      '<div class="card p-5 md:col-span-1 space-y-4">'+
-        '<h3 class="font-bold text-lg border-b pb-2">New Purchase Bill (Maal Khareedna)</h3>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Select Vendor *</label><select id="purchaseVendor" class="input mt-1"><option value="">Select Vendor</option>'+compOptions+'</select></div>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Purchase Date *</label><input id="purchaseDate" type="date" class="input mt-1" value="'+new Date().toISOString().split('T')[0]+'"></div>'+
-        '<div class="border-t pt-4 space-y-3">'+
-          '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="purchaseItem" onchange="onPurchaseItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select></div>'+
-          '<div class="grid grid-cols-2 gap-2">'+
-            '<div><label class="text-xs font-semibold text-slate-500">Purchase Rate (Rs)</label><input id="purchaseRate" type="number" class="input mt-1" placeholder="0"></div>'+
-            '<div><label class="text-xs font-semibold text-slate-500">Quantity</label><input id="purchaseQty" type="number" class="input mt-1" value="1" min="1"></div>'+
-          '</div>'+
-          '<button onclick="addItemToPurchase()" class="btn-dark mt-2">+ Add to Purchase</button>'+
-        '</div>'+
-      '</div>'+
-      '<div class="card p-5 md:col-span-2 flex flex-col justify-between">'+
-        '<div>'+
-          '<h3 class="font-bold text-lg border-b pb-2 mb-4">Items in Purchase ('+PURCHASE_ITEMS.length+')</h3>'+
-          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Rate</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(purchaseRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
-        '</div>'+
-        '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
-          '<div class="flex justify-between items-center"><div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600">Rs <span id="lblPurchaseGrandTotal">'+pGrandTotal.toLocaleString()+'</span></div></div><button onclick="saveFinalPurchase()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">Save Purchase Bill</button></div>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
-    return;
-  }
-
-  if(curTab==='company'){
-    let filteredComps = DATA.companies.filter(c => {
-      let q = COMP_SEARCH.toLowerCase();
-      return !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q) || (c.address||'').toLowerCase().includes(q);
-    });
-
-    let compRows = filteredComps.map(function(c){
-      let bal=getBal(c.id);
-      let cls = bal>=0 ? 'text-red-600' : 'text-green-600';
-      let txt = bal>=0 ? 'Payable' : 'Receivable';
-      return '<tr class="border-b hover:bg-slate-50"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'')+'</div></td><td class="p-3 text-center font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'<div class="text-[10px]">'+txt+'</div></td><td class="p-3 flex gap-1 justify-center"><button onclick="openLedger(\''+c.id+'\')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs">Ledger</button><button onclick="editComp(\''+c.id+'\')" class="px-2 py-1.5 bg-blue-600 text-white rounded-lg text-xs">✏</button><button onclick="delComp(\''+c.id+'\')" class="px-2 py-1.5 bg-red-500 text-white rounded-lg text-xs">X</button></td></tr>';
-    }).join('');
-
-    v.innerHTML='<div class="card p-5 mb-6"><h3 class="font-bold mb-3" id="compTitle">Add Vendor</h3><div class="grid md:grid-cols-3 gap-3"><input id="compName" class="input" placeholder="Vendor Name *"><input id="compPhone" class="input" placeholder="Phone"><input id="compOpen" type="number" class="input" placeholder="Opening Balance"><input id="compAddr" class="input md:col-span-3" placeholder="Address"></div><div class="flex gap-2 mt-4"><button id="compBtn" onclick="saveCompany()" class="btn-green flex-1">Save Vendor</button><button id="compCancel" onclick="cancelComp()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-5 mb-6"><input id="compSearchInput" class="input" placeholder="🔍 Search Vendor by Name, Phone, or Address..." value="'+COMP_SEARCH+'" oninput="COMP_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Vendor</th><th class="p-3">Balance</th><th class="p-3">Action</th></tr></thead><tbody>'+compRows+'</tbody></table></div>';
-    setTimeout(()=>{ let el = document.getElementById('compSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
-    return;
-  }
-
-  if(curTab==='item'){
-    let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
-    
-    let filteredItems = DATA.items.filter(it => {
-      let q = ITEM_SEARCH.toLowerCase();
-      let comp = DATA.companies.find(x => x.id === it.company_id);
-      let cName = comp ? comp.name : '';
-      return !q || (it.name||'').toLowerCase().includes(q) || cName.toLowerCase().includes(q) || (it.category||'').toLowerCase().includes(q);
-    });
-
-    let itemRows = filteredItems.map(it => {
-      let comp=DATA.companies.find(x=>x.id===it.company_id);
-      let lastPur = getLastPurchaseRate(it.id);
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'<div class="text-[10px] text-slate-500">Last Pur Cost: Rs '+lastPur+'</div></td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
-    }).join('');
-
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price *"><input id="iStock" type="number" class="input" placeholder="Stock"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
-    '<div class="card p-5 mb-6"><input id="itemSearchInput" class="input" placeholder="🔍 Search Item by Name, Vendor, or Category..." value="'+ITEM_SEARCH+'" oninput="ITEM_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Vendor</th><th class="p-3">Sale</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
-    setTimeout(()=>{ let el = document.getElementById('itemSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
-    return;
-  }
-
-  if(curTab==='cust'){
-    let filteredCusts = DATA.customers.filter(c => {
-      let q = CUST_SEARCH.toLowerCase();
-      return !q || (c.name||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q) || (c.area||'').toLowerCase().includes(q);
-    });
-
-    let custRows = filteredCusts.map(c => {
-      let isReg = c.is_registered === true || String(c.is_registered) === 'true';
-      let regBadge = isReg ? '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Registered</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-700">Unregistered</span>';
-      let bTypeBadge = (c.default_bill_type === 'tax') ? '<span class="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700 ml-1">Tax Invoice (GST:'+(c.gst_rate||18)+'%)</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 ml-1">Simple Bill</span>';
-      let bal = getCustBal(c.id);
-      let cls = bal >= 0 ? 'text-red-600' : 'text-green-600';
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+c.name+'<div class="text-xs text-slate-400">'+(c.phone||'-')+'</div></td><td class="p-3">'+(c.area||'-')+'</td><td class="p-3">'+regBadge+' '+bTypeBadge+'</td><td class="p-3 font-bold '+cls+'">Rs '+Math.abs(bal).toLocaleString()+'</td><td class="p-3 flex gap-1"><button onclick="openCustLedger(\''+c.id+'\')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button><button onclick="editCust(\''+c.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delCust(\''+c.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
-    }).join('');
-
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="custTitle" class="font-bold mb-3">Add Customer</h3>'+
-      '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
-        '<input id="cName" class="input" placeholder="Name *">'+
-        '<input id="cPhone" class="input" placeholder="Phone">'+
-        '<input id="cArea" class="input" placeholder="Area">'+
-        '<select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select>'+
-      '</div>'+
-      '<div class="grid md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl">'+
-        '<div><label class="text-[11px] font-bold text-slate-500">Default Bill Type</label><select id="cBillType" class="input mt-1"><option value="simple">Simple Bill</option><option value="tax">Tax Invoice</option></select></div>'+
-        '<div><label class="text-[11px] font-bold text-slate-500">GST Rate (%)</label><input id="cGstRate" type="number" class="input mt-1" value="18"></div>'+
-        '<div><label class="text-[11px] font-bold text-slate-500">Additional Tax (%)</label><input id="cAddTaxRate" type="number" class="input mt-1" value="3"></div>'+
-        '<div><label class="text-[11px] font-bold text-slate-500">Non-Reg Tax (%)</label><input id="cNonRegRate" type="number" step="0.01" class="input mt-1" value="0.25"></div>'+
-      '</div>'+
-      '<div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
-    '</div>'+
-    '<div class="card p-5 mb-6"><input id="custSearchInput" class="input" placeholder="🔍 Search Customer by Name, Phone, or Area..." value="'+CUST_SEARCH+'" oninput="CUST_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
-    setTimeout(()=>{ let el = document.getElementById('custSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
-    return;
-  }
-
-  if(curTab==='cust_ledger'){
-    let c = DATA.customers.find(x => String(x.id) === String(CUR_CUSTOMER));
-    if(!c){ openTab('cust'); return; }
-    let entries = DATA.cust_ledgers.filter(l => String(l.customer_id) === String(CUR_CUSTOMER));
-    let run = 0;
-    let rows = entries.map(e => {
-      run += Number(e.debit || 0) - Number(e.credit || 0);
-      return {...e, bal: run};
-    });
-    let totalBal = run;
-
-    let bankOptions = DATA.banks.map(b => '<option value="'+b.id+'">'+b.name+' ('+(b.account_no||'No Acc')+')</option>').join('');
-
-    let ledgerRows = rows.map(r => {
-      let badgeCls = r.type === 'sale' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
-      let bankObj = DATA.banks.find(b => String(b.id) === String(r.bank_id));
-      let bankLabel = bankObj ? ' - ' + bankObj.name : (r.payment_mode ? ' - ' + r.payment_mode : '');
-      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span><span class="text-[10px] text-slate-500 ml-1">'+bankLabel+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
-    }).join('');
-
-    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Customer Khata</h3><div class="text-sm">Balance Receivable: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'cust\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>'+
-    '<div class="grid md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-xl mt-4">'+
-      '<input id="clDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'">'+
-      '<select id="clType" class="input" onchange="toggleClMode(this)"><option value="payment">Payment (Wasooli)</option><option value="sale">Sale Invoice</option></select>'+
-      '<select id="clBank" class="input"><option value="">Select Bank / Wallet</option>'+bankOptions+'</select>'+
-      '<input id="clBill" class="input" placeholder="Ref / Bill No">'+
-      '<input id="clAmt" type="number" class="input" placeholder="Amount">'+
-      '<input id="clDesc" class="input" placeholder="Note">'+
-    '</div><button onclick="addCustLed()" class="btn-dark mt-3">Add Ledger Entry</button></div>'+
-    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Bank</th><th class="p-2.5">Ref</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit (Sale)</th><th class="p-2.5">Credit (Paid)</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
-    return;
-  }
-
-  if(curTab==='history'){
-    let filteredBills = DATA.bills.filter(b => {
-      let matchInv = !HIST_FILTERS.inv || (b.invoice_no||'').toLowerCase().includes(HIST_FILTERS.inv.toLowerCase());
-      let matchDate = !HIST_FILTERS.date || (b.created_at && b.created_at.startsWith(HIST_FILTERS.date));
-      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-      let cName = custObj ? custObj.name : '';
-      let matchCust = !HIST_FILTERS.cust || cName.toLowerCase().includes(HIST_FILTERS.cust.toLowerCase());
-      let matchType = !HIST_FILTERS.type || (b.bill_type || 'simple') === HIST_FILTERS.type;
-      return matchInv && matchDate && matchCust && matchType;
-    });
-
-    let billRows = filteredBills.map(b => {
-      let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-      let cName = custObj ? custObj.name : '-';
-      let cArea = custObj ? custObj.area : '-';
-      let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
-      let sName = salObj ? salObj.name : '-';
-      let bType = b.bill_type === 'tax' ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">TAX</span>' : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">SIMPLE</span>';
-      return '<tr class="border-b hover:bg-slate-50">'+
-        '<td class="p-3 text-center"><input type="checkbox" class="inv-checkbox" value="'+b.id+'"></td>'+
-        '<td class="p-3 font-mono text-xs">'+b.invoice_no+'</td>'+
-        '<td class="p-3 text-xs">'+new Date(b.created_at).toLocaleDateString()+'</td>'+
-        '<td class="p-3 font-semibold">'+cName+'<div class="text-[10px] text-slate-400">Salesman: '+sName+'</div></td>'+
-        '<td class="p-3 text-xs text-slate-600">'+cArea+'</td>'+
-        '<td class="p-3">'+bType+'</td>'+
-        '<td class="p-3 font-bold">Rs '+Number(b.total_amount||0).toLocaleString()+'</td>'+
-        '<td class="p-3 text-center flex gap-1 justify-center">'+
-          '<button onclick="printInvoice(\''+b.id+'\')" class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg text-xs shadow-sm">🖨️ Print</button>'+
-          '<button onclick="editBill(\''+b.id+'\')" class="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs shadow-sm">✏️ Edit</button>'+
-        '</td>'+
-      '</tr>';
-    }).join('') || '<tr><td colspan=8 class="p-8 text-center text-slate-400">Koi bill nahi mila</td></tr>';
-
-    v.innerHTML='<div class="card p-4 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3 bg-white shadow-sm">'+
-      '<input id="histInv" class="input" placeholder="Search Invoice No..." value="'+HIST_FILTERS.inv+'" oninput="HIST_FILTERS.inv=this.value; LAST_FOCUSED_HIST_ID=\'histInv\'; renderView();">'+
-      '<input id="histDate" type="date" class="input" value="'+HIST_FILTERS.date+'" onchange="HIST_FILTERS.date=this.value; renderView();">'+
-      '<input id="histCust" class="input" placeholder="Search Customer..." value="'+HIST_FILTERS.cust+'" oninput="HIST_FILTERS.cust=this.value; LAST_FOCUSED_HIST_ID=\'histCust\'; renderView();">'+
-      '<select id="histType" class="input" onchange="HIST_FILTERS.type=this.value; renderView();">'+
-        '<option value="" '+(HIST_FILTERS.type===''?'selected':'')+'>All Bill Types</option>'+
-        '<option value="simple" '+(HIST_FILTERS.type==='simple'?'selected':'')+'>Simple Bill</option>'+
-        '<option value="tax" '+(HIST_FILTERS.type==='tax'?'selected':'')+'>Tax Invoice</option>'+
-      '</select>'+
-    '</div>'+
-    '<div class="mb-3"><button onclick="printSelectedInvoices()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold shadow hover:bg-slate-800">🖨️ Print Selected Bills</button></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Customer & Salesman</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
-    
-    setTimeout(()=>{ 
-      let el = document.getElementById(LAST_FOCUSED_HIST_ID); 
-      if(el){ 
-        el.focus(); 
-        el.selectionStart = el.selectionEnd = el.value.length; 
-      } 
-    }, 50);
-    return;
-  }
-
-  if(curTab==='ledger'){
-    let c=DATA.companies.find(x=>x.id===CUR_COMPANY);
-    if(!c){ openTab('company'); return; }
-    let entries=DATA.ledgers.filter(l=>l.company_id===CUR_COMPANY);
-    let run=Number(c.opening_balance||0);
-    let rows=entries.map(e=>{
-      if(e.type==='purchase') run+=Number(e.debit||0);
-      else run-=Number(e.credit||0);
-      return {...e, bal:run};
-    });
-    let totalBal=rows.length ? rows[rows.length-1].bal : Number(c.opening_balance||0);
-
-    let bankOptions = DATA.banks.map(b => '<option value="'+b.id+'">'+b.name+' ('+(b.account_no||'No Acc')+')</option>').join('');
-
-    let ledgerRows = rows.map(r => {
-      let badgeCls = r.type==='purchase' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
-      let bankObj = DATA.banks.find(b => String(b.id) === String(r.bank_id));
-      let bankLabel = bankObj ? ' - ' + bankObj.name : (r.payment_mode ? ' - ' + r.payment_mode : '');
-      return '<tr class="border-b"><td class="p-2.5 text-xs">'+r.entry_date+'</td><td class="p-2.5"><span class="px-2 py-1 rounded text-[10px] '+badgeCls+'">'+r.type+'</span><span class="text-[10px] text-slate-500 ml-1">'+bankLabel+'</span></td><td class="p-2.5">'+(r.bill_no||'-')+'</td><td class="p-2.5 text-xs">'+(r.description||'-')+'</td><td class="p-2.5">'+(r.debit||0)+'</td><td class="p-2.5">'+(r.credit||0)+'</td><td class="p-2.5 font-bold">'+r.bal+'</td></tr>';
-    }).join('');
-
-    v.innerHTML='<div class="card p-5"><div class="flex justify-between items-center"><div><h3 class="font-bold text-lg">'+c.name+' - Khata</h3><div class="text-sm">Balance: <b>Rs '+Math.abs(totalBal).toLocaleString()+'</b></div></div><button onclick="openTab(\'company\')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>'+
-    '<div class="grid md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-xl mt-4">'+
-      '<input id="lDate" type="date" class="input" value="'+new Date().toISOString().split('T')[0]+'">'+
-      '<select id="lType" class="input"><option value="purchase">Purchase (Liya)</option><option value="payment">Payment Diya (Adaigi)</option></select>'+
-      '<select id="lBank" class="input"><option value="">Select Bank / Wallet</option>'+bankOptions+'</select>'+
-      '<input id="lBill" class="input" placeholder="Bill No / Ref">'+
-      '<input id="lAmt" type="number" class="input" placeholder="Amount">'+
-      '<input id="lDesc" class="input" placeholder="Note">'+
-    '</div><button onclick="addLed()" class="btn-dark mt-3">Add Entry</button></div>'+
-    '<div class="card p-0 mt-4 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-2.5">Date</th><th class="p-2.5">Type & Bank</th><th class="p-2.5">Bill</th><th class="p-2.5">Desc</th><th class="p-2.5">Debit</th><th class="p-2.5">Credit</th><th class="p-2.5">Balance</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>';
-    return;
-  }
-
-  if(curTab==='sale'){
-    let custOptions = DATA.customers.map(c => {
-      let isReg = c.is_registered === true || String(c.is_registered) === 'true';
-      return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
-    }).join('');
-    
-    let salesmanOptions = DATA.salesmen.map(s => '<option value="'+s.id+'">'+s.name+'</option>').join('');
-
-    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
-    let saleRows = SALE_ITEMS.map((item, idx) => 
-      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.price * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
-    ).join('');
-    let editNotice = EDIT_BILL_ID ? '<div class="bg-amber-100 border border-amber-300 text-amber-800 p-2.5 rounded-xl text-xs flex justify-between items-center mb-3"><span><b>Editing Bill Mode:</b> Invoice load ho gayi hai, zaroori changes karke Update karein.</span><button onclick="cancelBillEdit()" class="text-red-600 font-bold underline">Cancel Edit</button></div>' : '';
-
-    v.innerHTML='<div class="grid md:grid-cols-3 gap-6">'+
-      '<div class="card p-5 md:col-span-1 space-y-4">'+
-        editNotice+
-        '<h3 class="font-bold text-lg border-b pb-2">'+(EDIT_BILL_ID ? 'Edit Sale Invoice' : 'New Sale Invoice')+'</h3>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Select Salesman * (Mandatory)</label><select id="saleSalesman" onchange="SELECTED_SALESMAN_ID=this.value;" class="input mt-1 border-green-500 bg-green-50/30"><option value="">Select Salesman</option>'+salesmanOptions+'</select></div>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Select Customer *</label><select id="saleCust" onchange="onSaleCustChange()" class="input mt-1"><option value="">Select Customer</option>'+custOptions+'</select></div>'+
-        '<div><label class="text-xs font-semibold text-slate-500">Bill Type / Tax Mode (Auto from Customer)</label><select id="saleBillType" disabled class="input mt-1 bg-slate-100 cursor-not-allowed"><option value="simple">Simple Bill (No Tax)</option><option value="tax">Tax Invoice (GST + Extra Tax)</option></select></div>'+
-        '<div class="border-t pt-4 space-y-3">'+
-          '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="saleItem" onchange="onSaleItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select></div>'+
-          '<div class="grid grid-cols-2 gap-2">'+
-            '<div><label class="text-xs font-semibold text-slate-500">Price (Rs)</label><input id="salePrice" type="number" class="input mt-1" placeholder="0"></div>'+
-            '<div><label class="text-xs font-semibold text-slate-500">Quantity</label><input id="saleQty" type="number" class="input mt-1" value="1" min="1"></div>'+
-          '</div>'+
-          '<button onclick="addItemToSale()" class="btn-dark mt-2">+ Add to Bill</button>'+
-        '</div>'+
-      '</div>'+
-      '<div class="card p-5 md:col-span-2 flex flex-col justify-between">'+
-        '<div>'+
-          '<h3 class="font-bold text-lg border-b pb-2 mb-4">Items in Bill ('+SALE_ITEMS.length+')</h3>'+
-          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Price</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(saleRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
-        '</div>'+
-        '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
-          '<div class="flex justify-between text-slate-600"><span>Sub Total:</span><b id="lblSubTotal">Rs 0</b></div>'+
-          '<div id="rowGst" class="flex justify-between items-center text-slate-600"><span>GST (<input id="gstRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblGst">Rs 0</b></div>'+
-          '<div id="rowAddTax" class="flex justify-between items-center text-slate-600"><span>Additional Tax (<input id="addTaxRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblAddTax">Rs 0</b></div>'+
-          '<div id="rowNonReg" class="flex justify-between items-center text-amber-700 bg-amber-50 p-1.5 rounded"><span>Non-Registered Tax (<input id="nonRegTaxRate" type="number" disabled class="w-16 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblNonRegTax">Rs 0</b></div>'+
-          '<div class="border-t pt-2 flex justify-between items-center">'+
-            '<div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600" id="lblGrandTotal">Rs 0</div></div>'+
-            '<button onclick="saveFinalBill()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">'+(EDIT_BILL_ID ? 'Update Bill' : 'Complete & Save Bill')+'</button>'+
-          '</div>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
-    setTimeout(()=>{
-      if(SELECTED_SALESMAN_ID && document.getElementById('saleSalesman')){
-        document.getElementById('saleSalesman').value = SELECTED_SALESMAN_ID;
-      }
-      calculateSaleTotals();
-    }, 50);
+    v.innerHTML = `
+      <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Audit Log</h2><p class="text-xs text-slate-500">Every action taken within your distribution</p></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">TIME</th><th class="p-3 text-left">USER</th><th class="p-3 text-left">ACTION</th><th class="p-3 text-left">ENTITY</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>
+    `;
     return;
   }
 }
 
 async function updateUserStatus(userId, status){
-  let { error } = await supa.from('profiles').update({ status: status }).eq('id', userId);
-  if(error){ alert(error.message); return; }
-  alert('User status update ho gaya!');
+  await supa.from('profiles').update({ status: status }).eq('id', userId);
+  alert('Status updated!');
   loadAll();
 }
 
 async function saveSubDate(userId){
   let subDate = document.getElementById('sub_' + userId).value;
-  let { error } = await supa.from('profiles').update({ subscription_end: subDate || null }).eq('id', userId);
-  if(error){ alert(error.message); return; }
-  alert('Subscription date save ho gayi!');
+  await supa.from('profiles').update({ subscription_end: subDate || null }).eq('id', userId);
+  alert('Subscription saved!');
   loadAll();
-}
-
-async function saveSalesman(){
-  let name = document.getElementById('smName').value.trim();
-  if(!name) return alert('Salesman Name likhein!');
-  let payload = { 
-    name: name, 
-    phone: document.getElementById('smPhone').value, 
-    city: document.getElementById('smCity').value, 
-    area: document.getElementById('smArea').value, 
-    salary: Number(document.getElementById('smSalary').value || 0),
-    commission: Number(document.getElementById('smCommission').value || 0)
-  };
-  if(EDIT_SALESMAN_ID){
-    let { error } = await supa.from('salesmen').update(payload).eq('id', EDIT_SALESMAN_ID);
-    if(error){ alert(error.message); return; }
-    cancelSalesman(); loadAll(); return;
-  }
-  let { error } = await supa.from('salesmen').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelSalesman(); loadAll();
-}
-
-function editSalesman(id){
-  let s = DATA.salesmen.find(x => String(x.id) === String(id));
-  EDIT_SALESMAN_ID = id;
-  document.getElementById('smName').value = s.name || '';
-  document.getElementById('smPhone').value = s.phone || '';
-  document.getElementById('smCity').value = s.city || '';
-  document.getElementById('smArea').value = s.area || '';
-  document.getElementById('smSalary').value = s.salary || 0;
-  document.getElementById('smCommission').value = s.commission || 0;
-  document.getElementById('smTitle').innerText = 'Edit Salesman';
-  document.getElementById('smBtn').innerText = 'Update Salesman';
-  document.getElementById('smCancel').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function cancelSalesman(){
-  EDIT_SALESMAN_ID = null;
-  ['smName', 'smPhone', 'smCity', 'smArea', 'smSalary', 'smCommission'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
-  document.getElementById('smTitle').innerText = 'Add Salesman';
-  document.getElementById('smBtn').innerText = 'Save Salesman';
-  document.getElementById('smCancel').classList.add('hidden');
-}
-
-async function delSalesman(id){
-  if(!confirm('Delete salesman?')) return;
-  let { error } = await supa.from('salesmen').delete().eq('id', id);
-  if(error){ alert('Error: ' + error.message); return; }
-  loadAll();
-}
-
-function onSaleCustChange(){
-  let custEl = document.getElementById('saleCust');
-  let typeEl = document.getElementById('saleBillType');
-  let gstEl = document.getElementById('gstRate');
-  let addEl = document.getElementById('addTaxRate');
-  let nonEl = document.getElementById('nonRegTaxRate');
-  if(!custEl) return;
-  let custId = custEl.value;
-  let c = DATA.customers.find(x => String(x.id) === String(custId));
-  if(c){
-    if(typeEl) typeEl.value = c.default_bill_type || 'simple';
-    if(gstEl) gstEl.value = c.gst_rate !== undefined ? c.gst_rate : 18;
-    if(addEl) addEl.value = c.add_tax_rate !== undefined ? c.add_tax_rate : 3;
-    if(nonEl) nonEl.value = c.non_reg_tax_rate !== undefined ? c.non_reg_tax_rate : 0.25;
-  }
-  onSaleItemChange();
-  calculateSaleTotals();
-}
-
-function toggleClMode(sel){
-  let bankEl = document.getElementById('clBank');
-  if(bankEl) bankEl.style.display = sel.value === 'payment' ? 'block' : 'none';
-}
-
-function openCustLedger(id){
-  CUR_CUSTOMER = id;
-  curTab = 'cust_ledger';
-  document.getElementById('pageTitle').innerText = 'Customer Ledger';
-  renderView();
-}
-
-async function addCustLed(){
-  let amt = Number(document.getElementById('clAmt').value || 0);
-  if(!amt) return alert('Amount darj karein!');
-  let type = document.getElementById('clType').value;
-  let bankId = document.getElementById('clBank').value || null;
-  let payload = {
-    customer_id: CUR_CUSTOMER,
-    date: document.getElementById('clDate').value,
-    type: type,
-    bank_id: type === 'payment' ? bankId : null,
-    bill_no: document.getElementById('clBill').value,
-    description: document.getElementById('clDesc').value,
-    debit: type === 'sale' ? amt : 0,
-    credit: type === 'payment' ? amt : 0
-  };
-  let { error } = await supa.from('customer_ledger').insert([payload]);
-  if(error){ alert(error.message); return; }
-  await loadAll();
-  openCustLedger(CUR_CUSTOMER);
-}
-
-async function saveBank(){
-  let name = document.getElementById('bName').value.trim();
-  if(!name) return alert('Bank/Wallet name likhein!');
-  let payload = { name: name, account_no: document.getElementById('bAcc').value };
-  if(EDIT_BANK_ID){
-    let { error } = await supa.from('banks').update(payload).eq('id', EDIT_BANK_ID);
-    if(error){ alert(error.message); return; }
-    cancelBank(); loadAll(); return;
-  }
-  let { error } = await supa.from('banks').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelBank(); loadAll();
-}
-
-function editBank(id){
-  let b = DATA.banks.find(x => String(x.id) === String(id));
-  EDIT_BANK_ID = id;
-  document.getElementById('bName').value = b.name || '';
-  document.getElementById('bAcc').value = b.account_no || '';
-  document.getElementById('bankTitle').innerText = 'Edit Bank Account';
-  document.getElementById('bankBtn').innerText = 'Update Bank';
-  document.getElementById('bankCancel').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function cancelBank(){
-  EDIT_BANK_ID = null;
-  ['bName', 'bAcc'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
-  document.getElementById('bankTitle').innerText = 'Add Bank / Wallet Account';
-  document.getElementById('bankBtn').innerText = 'Save Bank';
-  document.getElementById('bankCancel').classList.add('hidden');
-}
-
-async function delBank(id){
-  if(!confirm('Delete bank?')) return;
-  await supa.from('banks').delete().eq('id', id);
-  loadAll();
-}
-
-function printInvoice(id) {
-  let b = DATA.bills.find(x => String(x.id) === String(id));
-  if(!b) return alert('Bill nahi mila!');
-  let items = [];
-  try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e) { items = []; }
-  let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-  let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
-  let cName = custObj?.name || 'Walk-in Customer';
-  let cArea = custObj?.area || '-';
-  let sName = salObj?.name || '-';
-  let printWindow = window.open('', '_blank', 'width=800,height=600');
-  printWindow.document.write('<html><head><title>Invoice - ' + b.invoice_no + '</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.header{text-align:center;margin-bottom:20px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:20px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}th{background-color:#f2f2f2}.total{text-align:right;font-size:16px;font-weight:bold}</style></head><body><div class="header"><h2>QNH ENTERPRISES</h2><p>Distribution System - Invoice</p></div><div class="invoice-info"><div><p><b>Invoice No:</b> ' + b.invoice_no + '</p><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p><p><b>Type:</b> ' + (b.bill_type || 'simple').toUpperCase() + '</p></div></div><table><thead><tr><th>Item Name</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Grand Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
-  printWindow.document.close();
-}
-
-function toggleSelectAllInvoices(master) {
-  let checkboxes = document.querySelectorAll('.inv-checkbox');
-  checkboxes.forEach(cb => cb.checked = master.checked);
-}
-
-function printSelectedInvoices() {
-  let checked = document.querySelectorAll('.inv-checkbox:checked');
-  if(checked.length === 0) return alert('Kam az kam ek bill select karein!');
-  let selectedIds = Array.from(checked).map(cb => cb.value);
-  let selectedBills = DATA.bills.filter(b => selectedIds.includes(String(b.id)));
-  let printWindow = window.open('', '_blank', 'width=800,height=600');
-  let htmlContent = '<html><head><title>Bulk Print Invoices</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.invoice-page{page-break-after:always;margin-bottom:40px}.header{text-align:center;margin-bottom:15px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:15px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:15px}th,td{border:1px solid #ddd;padding:6px;text-align:left;font-size:12px}th{background-color:#f2f2f2}.total{text-align:right;font-size:14px;font-weight:bold}</style></head><body>';
-  selectedBills.forEach(b => {
-    let items = [];
-    try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e){}
-    let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-    let salObj = DATA.salesmen.find(x => String(x.id) === String(b.salesman_id));
-    let cName = custObj?.name || 'Customer';
-    let cArea = custObj?.area || '';
-    let sName = salObj?.name || '';
-    htmlContent += '<div class="invoice-page"><div class="header"><h2>QNH ENTERPRISES</h2><p>Invoice: ' + b.invoice_no + '</p></div><div class="invoice-info"><div><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p></div></div><table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + i.qty + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><hr style="margin-top:30px; border: 1px dashed #ccc;"></div>';
-  });
-  htmlContent += '<script>window.onload=function(){window.print();}<\/script></body></html>';
-  printWindow.document.write(htmlContent);
-  printWindow.document.close();
-}
-
-function onSaleItemChange(){
-  let custId = document.getElementById('saleCust')?.value;
-  let itemId = document.getElementById('saleItem')?.value;
-  if(!itemId) return;
-  let it = DATA.items.find(x => String(x.id) === String(itemId));
-  if(!it) return;
-
-  let rateToSet = it.sale_price || it.sale_cost || 0;
-  if(custId){
-    let lastCustRate = getLastSaleRate(custId, itemId);
-    if(lastCustRate !== null){
-      rateToSet = lastCustRate;
-    }
-  }
-  document.getElementById('salePrice').value = rateToSet;
-
-  let lastPurchaseCost = getLastPurchaseRate(itemId) || it.purchase_cost || 0;
-  if(Number(rateToSet) < Number(lastPurchaseCost)){
-    alert('⚠️ WARNING (Loss Alert): Is item ka naya purchase cost/rate (Rs ' + lastPurchaseCost + ') zyada hai, aur aap yeh is se kam rate (Rs ' + rateToSet + ') par sale kar rahe hain!');
-  }
-}
-
-function addItemToSale(){
-  let curCust = document.getElementById('saleCust') ? document.getElementById('saleCust').value : '';
-  let saleItemEl = document.getElementById('saleItem');
-  let itemId = saleItemEl ? saleItemEl.value : '';
-  let price = Number(document.getElementById('salePrice') ? document.getElementById('salePrice').value : 0);
-  let qty = Number(document.getElementById('saleQty') ? document.getElementById('saleQty').value : 1);
-  if(!itemId) return alert('Kripya Item select karein!');
-  if(qty <= 0) return alert('Quantity sahi darj karein!');
-  let it = DATA.items.find(x => String(x.id) === String(itemId));
-  if(!it) return alert('Selected Item nahi mila!');
-  SALE_ITEMS.push({ id: it.id, name: it.name, price: price, qty: qty });
-  renderView();
-  if (document.getElementById('saleCust') && curCust) {
-    document.getElementById('saleCust').value = curCust;
-    onSaleCustChange();
-  }
-  setTimeout(() => {
-    let itemEl = document.getElementById('saleItem');
-    if(itemEl){ itemEl.focus(); }
-  }, 50);
-}
-
-function removeSaleItem(index){
-  let curCust = document.getElementById('saleCust') ? document.getElementById('saleCust').value : '';
-  SALE_ITEMS.splice(index, 1);
-  renderView();
-  if (document.getElementById('saleCust') && curCust) {
-    document.getElementById('saleCust').value = curCust;
-    onSaleCustChange();
-  }
-}
-
-function onPurchaseItemChange(){
-  let itemEl = document.getElementById('purchaseItem');
-  let itemId = itemEl.value;
-  if(!itemId) return;
-  let it = DATA.items.find(x => String(x.id) === String(itemId));
-  let lastCost = getLastPurchaseRate(itemId) || (it ? (it.purchase_cost || 0) : 0);
-  document.getElementById('purchaseRate').value = lastCost;
-}
-
-function addItemToPurchase(){
-  let vendorId = document.getElementById('purchaseVendor').value;
-  let purchaseDate = document.getElementById('purchaseDate').value;
-  let itemEl = document.getElementById('purchaseItem');
-  let itemId = itemEl.value;
-  let rate = Number(document.getElementById('purchaseRate').value || 0);
-  let qty = Number(document.getElementById('purchaseQty').value || 1);
-  if(!itemId) return alert('Kripya Item select karein!');
-  if(rate <= 0 || qty <= 0) return alert('Sahi rate aur quantity darj karein!');
-  let it = DATA.items.find(x => String(x.id) === String(itemId));
-  if(!it) return alert('Selected Item nahi mila!');
-  PURCHASE_ITEMS.push({ id: it.id, name: it.name, rate: rate, qty: qty });
-  renderView();
-  if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
-  if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
-  
-  setTimeout(() => {
-    let pItemEl = document.getElementById('purchaseItem');
-    if(pItemEl){ pItemEl.focus(); }
-  }, 50);
-}
-
-function removePurchaseItem(index){
-  let vendorId = document.getElementById('purchaseVendor') ? document.getElementById('purchaseVendor').value : '';
-  let purchaseDate = document.getElementById('purchaseDate') ? document.getElementById('purchaseDate').value : '';
-  PURCHASE_ITEMS.splice(index, 1);
-  renderView();
-  if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
-  if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
-}
-
-async function saveFinalPurchase(){
-  let vendorId = document.getElementById('purchaseVendor').value;
-  let purchaseDate = document.getElementById('purchaseDate').value;
-  if(!vendorId) return alert('Pehle Vendor select karein!');
-  if(PURCHASE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
-  let grandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
-  let billNo = 'PUR-' + Math.floor(1000 + Math.random() * 9000);
-  let { data: pData, error: pErr } = await supa.from('purchases').insert([{ vendor_id: vendorId, bill_no: billNo, total_amount: grandTotal, purchase_date: purchaseDate }]).select();
-  if(pErr){ alert('Purchase save karne mein error: ' + pErr.message); return; }
-  let purchaseId = pData && pData.length > 0 ? pData[0].id : null;
-  for(let item of PURCHASE_ITEMS){
-    if(purchaseId){
-      await supa.from('purchase_items').insert([{ purchase_id: purchaseId, item_id: item.id, quantity: item.qty, rate: item.rate, total: item.rate * item.qty }]);
-    }
-    let currentIt = DATA.items.find(x => String(x.id) === String(item.id));
-    let newStock = Number(currentIt?.current_stock || 0) + Number(item.qty);
-    await supa.from('items').update({ current_stock: newStock, purchase_cost: item.rate }).eq('id', item.id);
-  }
-  let { error: lErr } = await supa.from('vendor_ledgers').insert([{ company_id: vendorId, entry_date: purchaseDate, type: 'purchase', bill_no: billNo, description: 'Purchase Bill Items Total: Rs ' + grandTotal, debit: grandTotal, credit: 0 }]);
-  if(lErr) console.warn('Ledger entry error:', lErr.message);
-  alert('Purchase Bill successfully save ho gaya!');
-  PURCHASE_ITEMS = [];
-  await loadAll();
-  openTab('purchase');
 }
 
 function calculateSaleTotals(){
   let subTotal = SALE_ITEMS.reduce((sum, item) => sum + (Number(item.price) * Number(item.qty)), 0);
-  let billTypeEl = document.getElementById('saleBillType');
-  let custEl = document.getElementById('saleCust');
-  if(!billTypeEl || !custEl) return;
-  let billType = billTypeEl.value;
-  let custId = custEl.value;
-  let selectedCust = DATA.customers.find(c => String(c.id) === String(custId));
-  let gstAmount = 0, addTaxAmount = 0, nonRegTaxAmount = 0;
-  let isReg = selectedCust ? (selectedCust.is_registered === true || String(selectedCust.is_registered) === 'true') : true;
-  let gstRate = Number(document.getElementById('gstRate')?.value || 18);
-  let addTaxRate = Number(document.getElementById('addTaxRate')?.value || 3);
-  let nonRegTaxRate = Number(document.getElementById('nonRegTaxRate')?.value || 0.25);
-  if (billType === 'tax') {
-    gstAmount = (subTotal * gstRate) / 100;
-    addTaxAmount = (subTotal * addTaxRate) / 100;
-    if (selectedCust && !isReg) nonRegTaxAmount = (subTotal * nonRegTaxRate) / 100;
-    if(document.getElementById('rowGst')) document.getElementById('rowGst').style.display = 'flex';
-    if(document.getElementById('rowAddTax')) document.getElementById('rowAddTax').style.display = 'flex';
-    if(document.getElementById('rowNonReg')) document.getElementById('rowNonReg').style.display = !isReg ? 'flex' : 'none';
-  } else {
-    if(document.getElementById('rowGst')) document.getElementById('rowGst').style.display = 'none';
-    if(document.getElementById('rowAddTax')) document.getElementById('rowAddTax').style.display = 'none';
-    if(document.getElementById('rowNonReg')) document.getElementById('rowNonReg').style.display = 'none';
-  }
-  let grandTotal = subTotal + gstAmount + addTaxAmount + nonRegTaxAmount;
-  if(document.getElementById('lblSubTotal')) document.getElementById('lblSubTotal').innerText = 'Rs ' + Math.round(subTotal).toLocaleString();
-  if(document.getElementById('lblGst')) document.getElementById('lblGst').innerText = 'Rs ' + Math.round(gstAmount).toLocaleString();
-  if(document.getElementById('lblAddTax')) document.getElementById('lblAddTax').innerText = 'Rs ' + Math.round(addTaxAmount).toLocaleString();
-  if(document.getElementById('lblNonRegTax')) document.getElementById('lblNonRegTax').innerText = 'Rs ' + Math.round(nonRegTaxAmount).toLocaleString();
-  if(document.getElementById('lblGrandTotal')) document.getElementById('lblGrandTotal').innerText = 'Rs ' + Math.round(grandTotal).toLocaleString();
-  return { subTotal, gstAmount, addTaxAmount, nonRegTaxAmount, grandTotal, billType, custId };
+  if(document.getElementById('lblGrandTotal')) document.getElementById('lblGrandTotal').innerText = 'Rs ' + Math.round(subTotal).toLocaleString();
+  return { grandTotal: subTotal };
 }
 
-async function getNextInvoiceNumber(billType) {
-  let prefix = (billType === 'tax') ? 'TAX-' : 'INV-';
-  try {
-    let { data } = await supa.from('bills').select('invoice_no').ilike('invoice_no', prefix + '%').order('created_at', { ascending: false }).limit(1);
-    if (!data || data.length === 0) return prefix + '1001';
-    let lastNum = parseInt(data[0].invoice_no.replace(prefix, '')) || 1000;
-    return prefix + (lastNum + 1);
-  } catch(e) {
-    return prefix + (Math.floor(Math.random() * 9000) + 1000);
-  }
+function onSaleItemChange(){
+  let itemId = document.getElementById('saleItem')?.value;
+  let it = DATA.items.find(x => String(x.id) === String(itemId));
+  if(it && document.getElementById('salePrice')) document.getElementById('salePrice').value = it.sale_price || 0;
 }
 
-function editBill(id){
-  let b = DATA.bills.find(x => String(x.id) === String(id));
-  if(!b) return alert('Bill nahi mila!');
-  EDIT_BILL_ID = id;
-  SELECTED_SALESMAN_ID = b.salesman_id || '';
-  if(b.items) {
-    try {
-      SALE_ITEMS = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
-      if(!Array.isArray(SALE_ITEMS)) SALE_ITEMS = [];
-    } catch(e) { SALE_ITEMS = []; }
-  } else { SALE_ITEMS = []; }
-  openTab('sale');
-  setTimeout(() => {
-    let cEl = document.getElementById('saleCust');
-    let tEl = document.getElementById('saleBillType');
-    let sEl = document.getElementById('saleSalesman');
-    if(cEl && b.customer_id) cEl.value = String(b.customer_id);
-    if(tEl && b.bill_type) tEl.value = String(b.bill_type);
-    if(sEl && b.salesman_id) sEl.value = String(b.salesman_id);
-    calculateSaleTotals();
-  }, 150);
+function addItemToSale(){
+  let itemId = document.getElementById('saleItem')?.value;
+  let price = Number(document.getElementById('salePrice')?.value || 0);
+  let qty = Number(document.getElementById('saleQty')?.value || 1);
+  let it = DATA.items.find(x => String(x.id) === String(itemId));
+  if(!it) return alert('Select item!');
+  SALE_ITEMS.push({ id: it.id, name: it.name, price: price, qty: qty });
+  renderView();
 }
 
-function cancelBillEdit(){
-  EDIT_BILL_ID = null;
-  SALE_ITEMS = [];
-  openTab('sale');
+function removeSaleItem(idx){
+  SALE_ITEMS.splice(idx, 1);
+  renderView();
 }
 
 async function saveFinalBill(){
   let salesmanId = document.getElementById('saleSalesman')?.value;
-  if(!salesmanId) return alert('Kripya Salesman select karein (Mandatory hai)!');
-  
-  let totals = calculateSaleTotals();
-  if(!totals) return;
-  if(!totals.custId) return alert('Pehle Customer select karein!');
-  if(SALE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
-  
-  let invNo;
-  if(EDIT_BILL_ID) {
-    let existingBill = DATA.bills.find(b => String(b.id) === String(EDIT_BILL_ID));
-    invNo = existingBill ? existingBill.invoice_no : await getNextInvoiceNumber(totals.billType);
-  } else {
-    invNo = await getNextInvoiceNumber(totals.billType);
-  }
-  let payload = { customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(SALE_ITEMS) };
-  let res;
-  if(EDIT_BILL_ID) {
-    res = await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID);
-  } else {
-    res = await supa.from('bills').insert([payload]);
-  }
-  if(res.error){
-    delete payload.items;
-    let fallback = EDIT_BILL_ID ? await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : await supa.from('bills').insert([payload]);
-    if(fallback.error){ alert('Bill save karne mein error: ' + fallback.error.message); return; }
-  }
-
-  await supa.from('customer_ledger').insert([{
-    customer_id: totals.custId,
-    date: new Date().toISOString().split('T')[0],
-    type: 'sale',
-    bill_no: invNo,
-    description: 'Sale Bill Total: Rs ' + totals.grandTotal,
-    debit: totals.grandTotal,
-    credit: 0
-  }]);
-
-  alert((EDIT_BILL_ID ? 'Bill Update' : 'Bill Save') + ' ho gaya hai! Invoice Number: ' + invNo);
+  let custId = document.getElementById('saleCust')?.value;
+  if(!salesmanId || !custId) return alert('Select salesman and customer!');
+  if(SALE_ITEMS.length === 0) return alert('Add items!');
+  let grandTotal = SALE_ITEMS.reduce((s,i)=>s+(i.price*i.qty),0);
+  let invNo = 'INV-' + Math.floor(1000 + Math.random() * 9000);
+  await supa.from('bills').insert([{ customer_id: custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: grandTotal, bill_type: 'simple', items: JSON.stringify(SALE_ITEMS) }]);
+  await supa.from('audit_logs').insert([{ action: 'CREATE_SALE', entity: 'Invoice', user_email: 'FAISAL', ip: '10.31.55.151' }]);
+  alert('Order saved successfully! Invoice: ' + invNo);
   SALE_ITEMS = [];
-  EDIT_BILL_ID = null;
-  await loadAll();
-  openTab('sale');
-}
-
-function openLedger(id){ CUR_COMPANY = id; curTab = 'ledger'; document.getElementById('pageTitle').innerText = 'Vendor Ledger'; renderView(); }
-
-async function addLed(){
-  let amt = Number(document.getElementById('lAmt').value || 0);
-  if(!amt) return alert('Amount likhein!');
-  let type = document.getElementById('lType').value;
-  let bankId = document.getElementById('lBank').value || null;
-  let payload = {
-    company_id: CUR_COMPANY,
-    entry_date: document.getElementById('lDate').value,
-    type: type,
-    bank_id: type === 'payment' ? bankId : null,
-    bill_no: document.getElementById('lBill').value,
-    description: document.getElementById('lDesc').value,
-    debit: type === 'purchase' ? amt : 0,
-    credit: type === 'payment' ? amt : 0
-  };
-  let { error } = await supa.from('vendor_ledgers').insert([payload]);
-  if(error){ alert(error.message); return; }
-  await loadAll();
-  openLedger(CUR_COMPANY);
-}
-
-async function saveCompany(){
-  let name = document.getElementById('compName').value;
-  if(!name) return alert('Name');
-  let payload = { name, phone: document.getElementById('compPhone').value, address: document.getElementById('compAddr').value, opening_balance: Number(document.getElementById('compOpen').value || 0) };
-  if(EDIT_COMP_ID){
-    let { error } = await supa.from('companies').update(payload).eq('id', EDIT_COMP_ID);
-    if(error){ alert(error.message); return; }
-    cancelComp(); loadAll();
-    setTimeout(() => { let el = document.getElementById('compName'); if(el) el.focus(); }, 50);
-    return;
-  }
-  let { error } = await supa.from('companies').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelComp();
-  loadAll();
-  setTimeout(() => { let el = document.getElementById('compName'); if(el) el.focus(); }, 50);
-}
-
-function editComp(id){
-  let c = DATA.companies.find(x => x.id === id);
-  EDIT_COMP_ID = id;
-  document.getElementById('compName').value = c.name;
-  document.getElementById('compPhone').value = c.phone || '';
-  document.getElementById('compAddr').value = c.address || '';
-  document.getElementById('compOpen').value = c.opening_balance || 0;
-  document.getElementById('compTitle').innerText = 'Edit Vendor';
-  document.getElementById('compBtn').innerText = 'Update Vendor';
-  document.getElementById('compCancel').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function cancelComp(){
-  EDIT_COMP_ID = null;
-  ['compName', 'compPhone', 'compAddr', 'compOpen'].forEach(i => document.getElementById(i).value = '');
-  document.getElementById('compTitle').innerText = 'Add Vendor';
-  document.getElementById('compBtn').innerText = 'Save Vendor';
-  document.getElementById('compCancel').classList.add('hidden');
-}
-
-async function delComp(id){
-  if(!confirm('Delete vendor?')) return;
-  await supa.from('companies').delete().eq('id', id);
-  loadAll();
-}
-
-function editCust(id){
-  let c = DATA.customers.find(x => String(x.id) === String(id));
-  EDIT_CUST_ID = id;
-  document.getElementById('cName').value = c.name || '';
-  document.getElementById('cPhone').value = c.phone || '';
-  document.getElementById('cArea').value = c.area || '';
-  document.getElementById('cRegistered').value = (c.is_registered === true || String(c.is_registered) === 'true') ? 'true' : 'false';
-  document.getElementById('cBillType').value = c.default_bill_type || 'simple';
-  document.getElementById('cGstRate').value = c.gst_rate !== undefined ? c.gst_rate : 18;
-  document.getElementById('cAddTaxRate').value = c.add_tax_rate !== undefined ? c.add_tax_rate : 3;
-  document.getElementById('cNonRegRate').value = c.non_reg_tax_rate !== undefined ? c.non_reg_tax_rate : 0.25;
-  document.getElementById('custTitle').innerText = 'Edit Customer';
-  document.getElementById('custBtn').innerText = 'Update Customer';
-  document.getElementById('custCancel').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function cancelCust(){
-  EDIT_CUST_ID = null;
-  ['cName', 'cPhone', 'cArea'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
-  if(document.getElementById('cRegistered')) document.getElementById('cRegistered').value = 'false';
-  if(document.getElementById('cBillType')) document.getElementById('cBillType').value = 'simple';
-  if(document.getElementById('cGstRate')) document.getElementById('cGstRate').value = '18';
-  if(document.getElementById('cAddTaxRate')) document.getElementById('cAddTaxRate').value = '3';
-  if(document.getElementById('cNonRegRate')) document.getElementById('cNonRegRate').value = '0.25';
-  document.getElementById('custTitle').innerText = 'Add Customer';
-  document.getElementById('custBtn').innerText = 'Save Customer';
-  document.getElementById('custCancel').classList.add('hidden');
-}
-
-async function saveCustomer(){
-  let n = document.getElementById('cName').value.trim();
-  if(!n) return alert('Name');
-  let isReg = document.getElementById('cRegistered').value === 'true';
-  let bType = document.getElementById('cBillType').value;
-  let gstR = Number(document.getElementById('cGstRate').value || 18);
-  let addR = Number(document.getElementById('cAddTaxRate').value || 3);
-  let nonR = Number(document.getElementById('cNonRegRate').value || 0.25);
-  let payload = { 
-    name: n, 
-    phone: document.getElementById('cPhone').value, 
-    area: document.getElementById('cArea').value, 
-    is_registered: isReg, 
-    default_bill_type: bType,
-    gst_rate: gstR,
-    add_tax_rate: addR,
-    non_reg_tax_rate: nonR
-  };
-  if(EDIT_CUST_ID){
-    let { error } = await supa.from('customers').update(payload).eq('id', EDIT_CUST_ID);
-    if(error){ alert(error.message); return; }
-    cancelCust(); loadAll(); return;
-  }
-  let { error } = await supa.from('customers').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelCust(); loadAll();
-}
-
-async function delCust(id){
-  if(!confirm('Delete customer?')) return;
-  let { error } = await supa.from('customers').delete().eq('id', id);
-  if(error){ alert('Error: ' + error.message); return; }
-  loadAll();
-}
-
-function editItem(id){
-  let it = DATA.items.find(x => String(x.id) === String(id));
-  EDIT_ITEM_ID = id;
-  document.getElementById('iName').value = it.name;
-  document.getElementById('iComp').value = it.company_id || '';
-  document.getElementById('iPur').value = it.purchase_cost || 0;
-  document.getElementById('iSale').value = it.sale_price || it.sale_cost || 0;
-  document.getElementById('iStock').value = it.current_stock || 0;
-  document.getElementById('itemTitle').innerText = 'Edit Item';
-  document.getElementById('itemBtn').innerText = 'Update Item';
-  document.getElementById('itemCancel').classList.remove('hidden');
-  window.scrollTo({ top:0, behavior:'smooth' });
-}
-
-function cancelItem(){
-  EDIT_ITEM_ID = null;
-  ['iName', 'iPur', 'iSale', 'iStock', 'iCat'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
-  document.getElementById('iComp').value = '';
-  document.getElementById('itemTitle').innerText = 'Add Item';
-  document.getElementById('itemBtn').innerText = 'Save Item';
-  document.getElementById('itemCancel').classList.add('hidden');
-}
-
-async function saveItem(){
-  let n = document.getElementById('iName').value;
-  if(!n) return alert('Name');
-  let payload = { name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0) };
-  if(EDIT_ITEM_ID){
-    let { error } = await supa.from('items').update(payload).eq('id', EDIT_ITEM_ID);
-    if(error){ alert(error.message); return; }
-    cancelItem(); loadAll();
-    setTimeout(() => { let el = document.getElementById('iName'); if(el) el.focus(); }, 50);
-    return;
-  }
-  let { error } = await supa.from('items').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelItem();
-  loadAll();
-  setTimeout(() => { let el = document.getElementById('iName'); if(el) el.focus(); }, 50);
-}
-
-async function delItem(id){
-  if(!confirm('Delete?')) return;
-  await supa.from('items').delete().eq('id', id);
   loadAll();
 }
 
