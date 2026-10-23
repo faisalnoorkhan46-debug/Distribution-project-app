@@ -61,6 +61,11 @@ let USER_TABS=[
 let TABS = USER_TABS;
 let curTab = 'dash';
 
+async function getUserId(){
+  let { data: { user } } = await supa.auth.getUser();
+  return user ? user.id : null;
+}
+
 async function initAuth(){
   let { data: { session } } = await supa.auth.getSession();
   if(!session){
@@ -242,8 +247,8 @@ async function handleLogin(){
       btn.innerText = 'Login to System';
       btn.disabled = false;
     } else {
-      // Log audit
-      await supa.from('audit_logs').insert([{ action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
+      let uid = data.user ? data.user.id : null;
+      await supa.from('audit_logs').insert([{ user_id: uid, action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
     }
   } catch(e) {
     alert('Error: ' + e.message);
@@ -317,18 +322,23 @@ function toggleMobileMenu(){
 
 async function safeLoad(table){
   try{
+    let { data: { user } } = await supa.auth.getUser();
+    if(!user) return [];
+    let userId = user.id;
+
     let res;
-    if(table==='bills') res = await supa.from('bills').select('*').order('created_at',{ascending:false}).limit(300);
-    else if(table==='companies') res = await supa.from('companies').select('*').order('name');
-    else if(table==='vendor_ledgers') res = await supa.from('vendor_ledgers').select('*').order('entry_date',{ascending:true});
-    else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').order('date',{ascending:true});
-    else if(table==='banks') res = await supa.from('banks').select('*').order('name');
-    else if(table==='customers') res = await supa.from('customers').select('*').order('name');
-    else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').order('created_at',{ascending:false});
-    else if(table==='salesmen') res = await supa.from('salesmen').select('*').order('name');
+    if(table==='bills') res = await supa.from('bills').select('*').eq('user_id', userId).order('created_at',{ascending:false}).limit(300);
+    else if(table==='companies') res = await supa.from('companies').select('*').eq('user_id', userId).order('name');
+    else if(table==='vendor_ledgers') res = await supa.from('vendor_ledgers').select('*').eq('user_id', userId).order('entry_date',{ascending:true});
+    else if(table==='customer_ledger') res = await supa.from('customer_ledger').select('*').eq('user_id', userId).order('date',{ascending:true});
+    else if(table==='banks') res = await supa.from('banks').select('*').eq('user_id', userId).order('name');
+    else if(table==='customers') res = await supa.from('customers').select('*').eq('user_id', userId).order('name');
+    else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').eq('user_id', userId).order('created_at',{ascending:false});
+    else if(table==='salesmen') res = await supa.from('salesmen').select('*').eq('user_id', userId).order('name');
     else if(table==='profiles') res = await supa.from('profiles').select('*').order('email');
-    else if(table==='audit_logs') res = await supa.from('audit_logs').select('*').order('created_at', {ascending:false}).limit(50);
-    else res = await supa.from('items').select('*').order('name');
+    else if(table==='audit_logs') res = (CURRENT_USER_ROLE === 'super_admin') ? await supa.from('audit_logs').select('*').order('created_at', {ascending:false}).limit(50) : await supa.from('audit_logs').select('*').eq('user_id', userId).order('created_at', {ascending:false}).limit(50);
+    else res = await supa.from('items').select('*').eq('user_id', userId).order('name');
+    
     if(res.error){console.warn(table,res.error.message); return [];}
     return res.data||[];
   }catch(e){return [];}
@@ -955,7 +965,9 @@ async function saveSubDate(userId){
 async function saveSalesman(){
   let name = document.getElementById('smName').value.trim();
   if(!name) return alert('Salesman Name likhein!');
+  let uid = await getUserId();
   let payload = { 
+    user_id: uid,
     name: name, 
     phone: document.getElementById('smPhone').value, 
     city: document.getElementById('smCity').value, 
@@ -1039,7 +1051,9 @@ async function addCustLed(){
   if(!amt) return alert('Amount darj karein!');
   let type = document.getElementById('clType').value;
   let bankId = document.getElementById('clBank').value || null;
+  let uid = await getUserId();
   let payload = {
+    user_id: uid,
     customer_id: CUR_CUSTOMER,
     date: document.getElementById('clDate').value,
     type: type,
@@ -1058,7 +1072,8 @@ async function addCustLed(){
 async function saveBank(){
   let name = document.getElementById('bName').value.trim();
   if(!name) return alert('Bank/Wallet name likhein!');
-  let payload = { name: name, account_no: document.getElementById('bAcc').value };
+  let uid = await getUserId();
+  let payload = { user_id: uid, name: name, account_no: document.getElementById('bAcc').value };
   if(EDIT_BANK_ID){
     let { error } = await supa.from('banks').update(payload).eq('id', EDIT_BANK_ID);
     if(error){ alert(error.message); return; }
@@ -1237,7 +1252,9 @@ async function saveFinalPurchase(){
   if(PURCHASE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
   let grandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
   let billNo = 'PUR-' + Math.floor(1000 + Math.random() * 9000);
-  let { data: pData, error: pErr } = await supa.from('purchases').insert([{ vendor_id: vendorId, bill_no: billNo, total_amount: grandTotal, purchase_date: purchaseDate }]).select();
+  let uid = await getUserId();
+  
+  let { data: pData, error: pErr } = await supa.from('purchases').insert([{ user_id: uid, vendor_id: vendorId, bill_no: billNo, total_amount: grandTotal, purchase_date: purchaseDate }]).select();
   if(pErr){ alert('Purchase save karne mein error: ' + pErr.message); return; }
   let purchaseId = pData && pData.length > 0 ? pData[0].id : null;
   for(let item of PURCHASE_ITEMS){
@@ -1248,7 +1265,7 @@ async function saveFinalPurchase(){
     let newStock = Number(currentIt?.current_stock || 0) + Number(item.qty);
     await supa.from('items').update({ current_stock: newStock, purchase_cost: item.rate }).eq('id', item.id);
   }
-  let { error: lErr } = await supa.from('vendor_ledgers').insert([{ company_id: vendorId, entry_date: purchaseDate, type: 'purchase', bill_no: billNo, description: 'Purchase Bill Items Total: Rs ' + grandTotal, debit: grandTotal, credit: 0 }]);
+  let { error: lErr } = await supa.from('vendor_ledgers').insert([{ user_id: uid, company_id: vendorId, entry_date: purchaseDate, type: 'purchase', bill_no: billNo, description: 'Purchase Bill Items Total: Rs ' + grandTotal, debit: grandTotal, credit: 0 }]);
   if(lErr) console.warn('Ledger entry error:', lErr.message);
   alert('Purchase Bill successfully save ho gaya!');
   PURCHASE_ITEMS = [];
@@ -1347,7 +1364,8 @@ async function saveFinalBill(){
   } else {
     invNo = await getNextInvoiceNumber(totals.billType);
   }
-  let payload = { customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(SALE_ITEMS) };
+  let uid = await getUserId();
+  let payload = { user_id: uid, customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(SALE_ITEMS) };
   let res;
   if(EDIT_BILL_ID) {
     res = await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID);
@@ -1361,6 +1379,7 @@ async function saveFinalBill(){
   }
 
   await supa.from('customer_ledger').insert([{
+    user_id: uid,
     customer_id: totals.custId,
     date: new Date().toISOString().split('T')[0],
     type: 'sale',
@@ -1384,7 +1403,9 @@ async function addLed(){
   if(!amt) return alert('Amount likhein!');
   let type = document.getElementById('lType').value;
   let bankId = document.getElementById('lBank').value || null;
+  let uid = await getUserId();
   let payload = {
+    user_id: uid,
     company_id: CUR_COMPANY,
     entry_date: document.getElementById('lDate').value,
     type: type,
@@ -1403,7 +1424,8 @@ async function addLed(){
 async function saveCompany(){
   let name = document.getElementById('compName').value;
   if(!name) return alert('Name');
-  let payload = { name, phone: document.getElementById('compPhone').value, address: document.getElementById('compAddr').value, opening_balance: Number(document.getElementById('compOpen').value || 0) };
+  let uid = await getUserId();
+  let payload = { user_id: uid, name, phone: document.getElementById('compPhone').value, address: document.getElementById('compAddr').value, opening_balance: Number(document.getElementById('compOpen').value || 0) };
   if(EDIT_COMP_ID){
     let { error } = await supa.from('companies').update(payload).eq('id', EDIT_COMP_ID);
     if(error){ alert(error.message); return; }
@@ -1483,7 +1505,9 @@ async function saveCustomer(){
   let gstR = Number(document.getElementById('cGstRate').value || 18);
   let addR = Number(document.getElementById('cAddTaxRate').value || 3);
   let nonR = Number(document.getElementById('cNonRegRate').value || 0.25);
+  let uid = await getUserId();
   let payload = { 
+    user_id: uid,
     name: n, 
     phone: document.getElementById('cPhone').value, 
     area: document.getElementById('cArea').value, 
@@ -1536,7 +1560,8 @@ function cancelItem(){
 async function saveItem(){
   let n = document.getElementById('iName').value;
   if(!n) return alert('Name');
-  let payload = { name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0) };
+  let uid = await getUserId();
+  let payload = { user_id: uid, name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0) };
   if(EDIT_ITEM_ID){
     let { error } = await supa.from('items').update(payload).eq('id', EDIT_ITEM_ID);
     if(error){ alert(error.message); return; }
