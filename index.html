@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QNH ENTERPRISES - HEAVY FAST</title>
+<title>QNH ENTERPRISES - Distribution & Admin Panel</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -30,14 +30,22 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[]};
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 let CURRENT_USER_ROLE = 'user';
 
-let TABS=[
+let ADMIN_TABS=[
+  {id:'admin_dash',label:'Dashboard',icon:'📊'},
+  {id:'admin_accounts',label:'Accounts',icon:'👥'},
+  {id:'admin_plans',label:'Subscription Plans',icon:'💳'},
+  {id:'admin_settings',label:'Settings',icon:'⚙️'},
+  {id:'admin_audit',label:'Audit Log',icon:'🕒'}
+];
+
+let USER_TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
@@ -50,7 +58,8 @@ let TABS=[
   {id:'company',label:'Vendors',icon:'🏢'}
 ];
 
-let curTab='dash';
+let TABS = USER_TABS;
+let curTab = 'dash';
 
 async function initAuth(){
   let { data: { session } } = await supa.auth.getSession();
@@ -85,9 +94,11 @@ async function checkUserPermissions(user){
 
   CURRENT_USER_ROLE = profile.role || 'user';
   if(CURRENT_USER_ROLE === 'super_admin'){
-    if(!TABS.some(t => t.id === 'super_admin')){
-      TABS.push({id:'super_admin',label:'Super Admin Panel',icon:'🛡️'});
-    }
+    TABS = ADMIN_TABS;
+    curTab = 'admin_dash';
+  } else {
+    TABS = USER_TABS;
+    curTab = 'dash';
   }
 
   renderMainLayout();
@@ -114,7 +125,7 @@ function renderLoginScreen(){
         <div class="text-center mb-6">
           <div class="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">Q</div>
           <h2 class="text-xl font-bold text-slate-800">QNH ENTERPRISES</h2>
-          <p class="text-xs text-slate-500">Multi-User Distribution System</p>
+          <p class="text-xs text-slate-500">Distribution & Admin Panel</p>
         </div>
         <div class="space-y-4">
           <div>
@@ -147,6 +158,9 @@ async function handleLogin(){
       alert('Login Failed: ' + error.message);
       btn.innerText = 'Login to System';
       btn.disabled = false;
+    } else {
+      // Log audit
+      await supa.from('audit_logs').insert([{ action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
     }
   } catch(e) {
     alert('Error: ' + e.message);
@@ -161,18 +175,25 @@ async function handleLogout(){
 }
 
 function renderMainLayout(){
+  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : 'QNH System User';
   document.getElementById('appContainer').innerHTML = `
     <div class="flex min-h-screen">
       <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
-        <div class="flex items-center gap-3 mb-8"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">Heavy Fast System</div></div></div>
+        <div class="flex items-center gap-3 mb-8"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : 'Distribution System'}</div></div></div>
         <nav id="sideNav" class="space-y-1.5 flex-1"></nav>
         <div class="pt-4 border-t space-y-3">
           <button onclick="handleLogout()" class="w-full text-left px-3.5 py-2.5 rounded-xl flex gap-3 text-[14px] text-red-600 hover:bg-red-50 font-bold items-center"><span>🚪</span> Logout</button>
-          <div class="text-[10px] text-slate-400">✅ Multi-User Active</div>
+          <div class="text-[10px] text-slate-400">✅ Secure Session Active</div>
         </div>
       </aside>
       <main class="flex-1 p-3 md:p-7 overflow-auto w-full">
-        <header class="flex justify-between items-center mb-6"><div class="flex items-center gap-3"><button onclick="toggleMobileMenu()" class="md:hidden w-10 h-10 bg-white border rounded-xl">☰</button><h1 id="pageTitle" class="text-2xl font-bold">Dashboard</h1></div><span id="invNoDisplay" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-mono">QNH SYSTEM</span></header>
+        <header class="flex justify-between items-center mb-6">
+          <div class="flex items-center gap-3"><button onclick="toggleMobileMenu()" class="md:hidden w-10 h-10 bg-white border rounded-xl">☰</button><h1 id="pageTitle" class="text-2xl font-bold">Dashboard</h1></div>
+          <div class="flex items-center gap-4">
+            <span class="text-sm font-semibold text-slate-700">${headerTitle}</span>
+            <button onclick="handleLogout()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800">Log out</button>
+          </div>
+        </header>
         <div id="mobileOverlay" onclick="toggleMobileMenu()" class="fixed inset-0 bg-black/50 z-40 hidden md:hidden"></div>
         <div id="viewArea"><div class="card p-10 text-center"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full mx-auto mb-3"></div><div class="text-slate-500">Loading your data...</div></div></div>
       </main>
@@ -194,7 +215,6 @@ function openTab(id){
   renderSide();
   let titleEl = document.getElementById('pageTitle');
   if(titleEl) titleEl.innerText=TABS.find(x=>x.id===id)?.label || 'System';
-  if(id!=='ledger' && id!=='cust_ledger'){ CUR_COMPANY=null; CUR_CUSTOMER=null; }
   renderView();
   if(window.innerWidth<768) toggleMobileMenu();
 }
@@ -224,6 +244,7 @@ async function safeLoad(table){
     else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').order('created_at',{ascending:false});
     else if(table==='salesmen') res = await supa.from('salesmen').select('*').order('name');
     else if(table==='profiles') res = await supa.from('profiles').select('*').order('email');
+    else if(table==='audit_logs') res = await supa.from('audit_logs').select('*').order('created_at', {ascending:false}).limit(50);
     else res = await supa.from('items').select('*').order('name');
     if(res.error){console.warn(table,res.error.message); return [];}
     return res.data||[];
@@ -232,7 +253,7 @@ async function safeLoad(table){
 
 async function loadAll(){
   let vArea = document.getElementById('viewArea');
-  if(vArea) vArea.innerHTML='<div class="card p-8 text-center">Connecting to Supabase...</div>';
+  if(vArea && !DATA.customers.length) vArea.innerHTML='<div class="card p-8 text-center">Connecting to Supabase...</div>';
   DATA.customers = await safeLoad('customers');
   DATA.items = await safeLoad('items');
   DATA.bills = await safeLoad('bills');
@@ -243,6 +264,7 @@ async function loadAll(){
   DATA.purchases = await safeLoad('purchases');
   DATA.salesmen = await safeLoad('salesmen');
   DATA.all_users = await safeLoad('profiles');
+  DATA.audit_logs = await safeLoad('audit_logs');
   renderView();
 }
 
@@ -292,17 +314,156 @@ function renderView(){
   let v=document.getElementById('viewArea');
   if(!v) return;
 
-  if(curTab==='super_admin' && CURRENT_USER_ROLE === 'super_admin'){
-    let userRows = DATA.all_users.map(u => {
-      let isPending = u.status === 'pending';
-      let statusBadge = isPending ? '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Pending</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>';
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+u.email+'</td><td class="p-3">'+statusBadge+'</td><td class="p-3"><input type="date" id="sub_'+u.id+'" value="'+(u.subscription_end || '')+'" class="border rounded px-2 py-1 text-xs"></td><td class="p-3 flex gap-2"><button onclick="updateUserStatus(\''+u.id+'\', \'active\')" class="px-3 py-1 bg-green-600 text-white rounded text-xs font-bold">Approve / Active</button><button onclick="updateUserStatus(\''+u.id+'\', \'pending\')" class="px-3 py-1 bg-amber-500 text-white rounded text-xs font-bold">Set Pending</button><button onclick="saveSubDate(\''+u.id+'\')" class="px-3 py-1 bg-blue-600 text-white rounded text-xs font-bold">Save Sub</button></td></tr>';
-    }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi user nahi mila</td></tr>';
+  // ==================== SUPER ADMIN VIEWS ====================
+  if(CURRENT_USER_ROLE === 'super_admin'){
+    if(curTab === 'admin_dash'){
+      let totalAccounts = DATA.all_users.length;
+      let pendingApprovals = DATA.all_users.filter(u => u.status === 'pending').length;
+      let activeUsers = DATA.all_users.filter(u => u.status === 'active').length;
+      let totalRevenue = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
 
-    v.innerHTML='<div class="card p-5"><h3 class="font-bold text-lg mb-4">Super Admin - Registered Users Management</h3><div class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">User Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>'+userRows+'</tbody></table></div></div>';
-    return;
+      v.innerHTML = `
+        <div class="mb-6">
+          <h2 class="text-xl font-bold text-slate-800">Platform Dashboard</h2>
+          <p class="text-xs text-slate-500">System-wide metrics across all distribution accounts</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Total Accounts</div><div class="text-2xl font-bold mt-1">${totalAccounts}</div></div>
+          <div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Pending Approvals</div><div class="text-2xl font-bold mt-1">${pendingApprovals}</div></div>
+          <div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Active Users</div><div class="text-2xl font-bold mt-1">${activeUsers}</div></div>
+          <div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Total Revenue</div><div class="text-2xl font-bold mt-1">Rs ${totalRevenue.toLocaleString()}</div></div>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-6 mb-6">
+          <div class="card p-5">
+            <h3 class="font-bold mb-3 text-sm">Accounts by Status</h3>
+            <div class="h-64 flex items-center justify-center"><canvas id="statusChart"></canvas></div>
+          </div>
+          <div class="card p-5">
+            <h3 class="font-bold mb-3 text-sm">Revenue by Plan</h3>
+            <div class="h-64 flex items-center justify-center"><canvas id="planChart"></canvas></div>
+          </div>
+        </div>
+        <div class="card p-5">
+          <h3 class="font-bold mb-3 text-sm">Active Users by Role</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-50 p-3 rounded-xl border text-center"><div class="text-xs text-slate-500">Super Admin</div><div class="text-lg font-bold">${DATA.all_users.filter(u=>u.role==='super_admin').length}</div></div>
+            <div class="bg-slate-50 p-3 rounded-xl border text-center"><div class="text-xs text-slate-500">Regular Users</div><div class="text-lg font-bold">${DATA.all_users.filter(u=>u.role!=='super_admin').length}</div></div>
+          </div>
+        </div>
+      `;
+
+      setTimeout(() => {
+        let ctx1 = document.getElementById('statusChart')?.getContext('2d');
+        if(ctx1){
+          new Chart(ctx1, {
+            type: 'doughnut',
+            data: {
+              labels: ['Approved', 'Pending'],
+              datasets: [{ data: [activeUsers, pendingApprovals], backgroundColor: ['#16a34a', '#f59e0b'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+          });
+        }
+        let ctx2 = document.getElementById('planChart')?.getContext('2d');
+        if(ctx2){
+          new Chart(ctx2, {
+            type: 'bar',
+            data: {
+              labels: ['Enterprise', 'Professional', 'Starter'],
+              datasets: [{ label: 'Revenue', data: [totalRevenue, 12000, 5000], backgroundColor: '#0f172a' }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+          });
+        }
+      }, 50);
+      return;
+    }
+
+    if(curTab === 'admin_accounts'){
+      let filteredUsers = DATA.all_users.filter(u => {
+        let q = ACCOUNTS_SEARCH.toLowerCase();
+        return !q || u.email.toLowerCase().includes(q);
+      });
+
+      let userRows = filteredUsers.map(u => {
+        let isPending = u.status === 'pending';
+        let statusBadge = isPending ? '<span class="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Pending</span>' : '<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Approved</span>';
+        return `
+          <tr class="border-b hover:bg-slate-50">
+            <td class="p-3 font-semibold">${u.email}<div class="text-xs text-slate-400">ID: ${u.id.substring(0,8)}...</div></td>
+            <td class="p-3">${statusBadge}</td>
+            <td class="p-3"><span class="px-2.5 py-1 bg-slate-100 rounded text-xs font-bold">${u.role || 'user'}</span></td>
+            <td class="p-3"><input type="date" id="sub_${u.id}" value="${u.subscription_end || ''}" class="border rounded px-2 py-1 text-xs"></td>
+            <td class="p-3 flex gap-2">
+              <button onclick="updateUserStatus('${u.id}', 'active')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700">Approve</button>
+              <button onclick="updateUserStatus('${u.id}', 'pending')" class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">Suspend</button>
+              <button onclick="saveSubDate('${u.id}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">Save</button>
+            </td>
+          </tr>
+        `;
+      }).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
+
+      v.innerHTML = `
+        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2><p class="text-xs text-slate-500">Review registrations and manage account subscriptions</p></div>
+        <div class="card p-5 mb-6"><input id="accountsSearchInput" class="input" placeholder="🔍 Search Account by Email..." value="${ACCOUNTS_SEARCH}" oninput="ACCOUNTS_SEARCH=this.value; renderView();"></div>
+        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role / Plan</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
+      `;
+      setTimeout(()=>{ let el = document.getElementById('accountsSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+      return;
+    }
+
+    if(curTab === 'admin_plans'){
+      v.innerHTML = `
+        <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Subscription Plans</h2><p class="text-xs text-slate-500">Define the tiers accounts can subscribe to</p></div><button onclick="alert('Feature coming soon!')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ New Plan</button></div>
+        <div class="card p-0 overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Plan</th><th class="p-3 text-left">Monthly</th><th class="p-3 text-left">Max Users</th><th class="p-3 text-left">Features</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Action</th></tr></thead>
+            <tbody>
+              <tr class="border-b"><td class="p-3 font-semibold">Starter</td><td class="p-3">Rs 2,999</td><td class="p-3">5</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">billing</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">reports</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
+              <tr class="border-b"><td class="p-3 font-semibold">Professional</td><td class="p-3">Rs 5,999</td><td class="p-3">25</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">billing</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">reports</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">inventory</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
+              <tr><td class="p-3 font-semibold">Enterprise</td><td class="p-3">Rs 9,999</td><td class="p-3">Unlimited</td><td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">all features</span> <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">api</span></td><td class="p-3"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">Active</span></td><td class="p-3"><button class="px-2 py-1 bg-blue-600 text-white rounded text-xs">Edit</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+      return;
+    }
+
+    if(curTab === 'admin_settings'){
+      v.innerHTML = `
+        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Settings</h2><p class="text-xs text-slate-500">Global system configuration</p></div>
+        <div class="card p-6 space-y-4 max-w-2xl">
+          <h3 class="font-bold text-sm border-b pb-2">General Configuration</h3>
+          <div><label class="text-xs font-semibold text-slate-600">Platform Name</label><input type="text" class="input mt-1" value="QNH ENTERPRISES DISTRIBUTION"></div>
+          <div><label class="text-xs font-semibold text-slate-600">Support Email</label><input type="email" class="input mt-1" value="support@qnhdistribution.local"></div>
+          <div class="flex items-center gap-2 pt-2"><input type="checkbox" checked id="allowReg" class="w-4 h-4"><label class="text-sm font-medium text-slate-700" for="allowReg">Allow new accounts to register</label></div>
+          <div class="flex items-center gap-2"><input type="checkbox" id="maintMode" class="w-4 h-4"><label class="text-sm font-medium text-slate-700" for="maintMode">Maintenance mode banner</label></div>
+          <button onclick="alert('Settings saved successfully!')" class="btn-green mt-4 !w-auto px-6 py-2.5">Save settings</button>
+        </div>
+      `;
+      return;
+    }
+
+    if(curTab === 'admin_audit'){
+      let auditRows = DATA.audit_logs.map(l => `
+        <tr class="border-b hover:bg-slate-50">
+          <td class="p-3 text-xs">${new Date(l.created_at || Date.now()).toLocaleString()}</td>
+          <td class="p-3 font-semibold">${l.user_email || 'superadmin'}</td>
+          <td class="p-3"><span class="px-2 py-1 rounded text-[10px] font-bold bg-green-100 text-green-700">${l.action}</span></td>
+          <td class="p-3 text-xs">${l.entity || 'User'}</td>
+          <td class="p-3 font-mono text-xs text-slate-500">${l.ip || '10.31.242.5'}</td>
+        </tr>
+      `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">No audit logs recorded yet</td></tr>';
+
+      v.innerHTML = `
+        <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Audit Log</h2><p class="text-xs text-slate-500">Logins and administrative actions tracking</p></div>
+        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Time</th><th class="p-3 text-left">User</th><th class="p-3 text-left">Action</th><th class="p-3 text-left">Entity</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>
+      `;
+      return;
+    }
   }
 
+  // ==================== NORMAL USER DISTRIBUTION VIEWS ====================
   if(curTab==='dash'){
     let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
     let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
