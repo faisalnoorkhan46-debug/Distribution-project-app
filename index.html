@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QNH ENTERPRISES - Distribution & Admin Panel</title>
+<title>QNH ENTERPRISES - Distribution Platform</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -18,7 +18,7 @@ a[href*="netlify"],div[class*="netlify"]{display:none!important}
   <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
     <div class="card p-8 max-w-md w-full bg-white shadow-2xl rounded-2xl text-center">
       <div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full mx-auto mb-3"></div>
-      <div class="text-slate-500 text-sm">Checking authentication session...</div>
+      <div class="text-slate-500 text-sm">Loading system...</div>
     </div>
   </div>
 </div>
@@ -49,7 +49,12 @@ let USER_TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'staff',label:'Staff',icon:'👥'},
   {id:'cust',label:'Customers',icon:'👤'},
-  {id:'sale',label:'Orders',icon:'🧾'},
+  {id:'sale',label:'Orders & Billing',icon:'🧾'},
+  {id:'purchase',label:'Purchases',icon:'🛒'},
+  {id:'history',label:'Sales History',icon:'📜'},
+  {id:'item',label:'Inventory Items',icon:'📦'},
+  {id:'company',label:'Vendors',icon:'🏢'},
+  {id:'banks',label:'Banks & Wallets',icon:'🏦'},
   {id:'reports',label:'Reports',icon:'📈'},
   {id:'settings',label:'Settings',icon:'⚙️'},
   {id:'audit',label:'Audit Log',icon:'🕒'}
@@ -61,18 +66,126 @@ let curTab = 'dash';
 async function initAuth(){
   let { data: { session } } = await supa.auth.getSession();
   if(!session){
-    renderLoginScreen();
+    renderWelcomeScreen();
   } else {
     await checkUserPermissions(session.user);
   }
 
   supa.auth.onAuthStateChange(async (event, session) => {
     if(!session){
-      renderLoginScreen();
+      renderWelcomeScreen();
     } else {
       await checkUserPermissions(session.user);
     }
   });
+}
+
+function renderWelcomeScreen(){
+  document.getElementById('appContainer').innerHTML = `
+    <div class="min-h-screen bg-slate-50 flex flex-col">
+      <header class="flex justify-between items-center px-8 py-4 bg-white border-b">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div>
+          <span class="font-bold text-lg text-slate-800">QNH Distribution</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button onclick="renderLoginModal()" class="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900">Sign in</button>
+          <button onclick="renderRegisterModal()" class="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow hover:bg-green-700">Register New Distribution</button>
+        </div>
+      </header>
+      <main class="flex-1 flex flex-col items-center justify-center text-center px-4 py-16">
+        <div class="inline-block bg-green-100 text-green-800 text-xs font-bold px-3 py-1 rounded-full mb-4">Multi-tenant distribution platform</div>
+        <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 max-w-3xl leading-tight mb-4">Run your distribution on one calm, modern platform</h1>
+        <p class="text-slate-600 max-w-xl text-sm md:text-base mb-8">Sales orders, customers, inventory, billing, and advanced reports — built for busy distribution networks with real-time tracking.</p>
+        <div class="flex gap-4">
+          <button onclick="renderRegisterModal()" class="bg-green-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-green-700">Register New Distribution</button>
+          <button onclick="renderLoginModal()" class="bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-xl font-bold shadow hover:bg-slate-50">Sign in</button>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderLoginModal(){
+  document.getElementById('appContainer').innerHTML = `
+    <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+      <div class="card p-8 max-w-md w-full bg-white shadow-2xl rounded-2xl relative">
+        <button onclick="renderWelcomeScreen()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+        <div class="text-center mb-6">
+          <div class="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">Q</div>
+          <h2 class="text-xl font-bold text-slate-800">Sign in to QNH</h2>
+          <p class="text-xs text-slate-500">Enter your credentials to access your dashboard</p>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600">Email Address *</label>
+            <input id="loginEmail" type="email" class="input mt-1" placeholder="Enter email">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600">Password *</label>
+            <input id="loginPassword" type="password" class="input mt-1" placeholder="Enter password">
+          </div>
+          <button id="loginBtn" onclick="handleLogin()" class="btn-green py-3">Sign In</button>
+          <div class="text-center text-xs text-slate-500 pt-2">Don't have an account? <span onclick="renderRegisterModal()" class="text-green-600 font-bold cursor-pointer underline">Register</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRegisterModal(){
+  document.getElementById('appContainer').innerHTML = `
+    <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+      <div class="card p-8 max-w-md w-full bg-white shadow-2xl rounded-2xl relative">
+        <button onclick="renderWelcomeScreen()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+        <div class="text-center mb-6">
+          <div class="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">Q</div>
+          <h2 class="text-xl font-bold text-slate-800">Register New Distribution</h2>
+          <p class="text-xs text-slate-500">Create your account to get started</p>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600">Email Address *</label>
+            <input id="regEmail" type="email" class="input mt-1" placeholder="Enter email">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600">Password *</label>
+            <input id="regPassword" type="password" class="input mt-1" placeholder="Choose password">
+          </div>
+          <button id="regBtn" onclick="handleRegister()" class="btn-green py-3">Register Distribution</button>
+          <div class="text-center text-xs text-slate-500 pt-2">Already have an account? <span onclick="renderLoginModal()" class="text-green-600 font-bold cursor-pointer underline">Sign in</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function handleRegister(){
+  let email = document.getElementById('regEmail').value.trim();
+  let password = document.getElementById('regPassword').value.trim();
+  if(!email || !password) return alert('Email aur password dono likhein!');
+  let btn = document.getElementById('regBtn');
+  btn.innerText = 'Registering...';
+  btn.disabled = true;
+
+  try {
+    let { data, error } = await supa.auth.signUp({ email, password });
+    if(error){
+      alert('Registration Failed: ' + error.message);
+      btn.innerText = 'Register Distribution';
+      btn.disabled = false;
+    } else {
+      if(data.user){
+        await supa.from('profiles').insert([{ id: data.user.id, email: email, status: 'pending', role: 'user' }]);
+      }
+      alert('Account successfully create ho gaya hai! Super Admin approval ke baad aap login kar sakenge.');
+      renderLoginModal();
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.innerText = 'Register Distribution';
+    btn.disabled = false;
+  }
 }
 
 async function checkUserPermissions(user){
@@ -115,31 +228,6 @@ function renderPendingScreen(msg){
   `;
 }
 
-function renderLoginScreen(){
-  document.getElementById('appContainer').innerHTML = `
-    <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-      <div class="card p-8 max-w-md w-full bg-white shadow-2xl rounded-2xl">
-        <div class="text-center mb-6">
-          <div class="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-2">Q</div>
-          <h2 class="text-xl font-bold text-slate-800">QNH ENTERPRISES</h2>
-          <p class="text-xs text-slate-500">Distribution & Admin Panel</p>
-        </div>
-        <div class="space-y-4">
-          <div>
-            <label class="text-xs font-semibold text-slate-600">Email Address *</label>
-            <input id="loginEmail" type="email" class="input mt-1" placeholder="Enter email">
-          </div>
-          <div>
-            <label class="text-xs font-semibold text-slate-600">Password *</label>
-            <input id="loginPassword" type="password" class="input mt-1" placeholder="Enter password">
-          </div>
-          <button id="loginBtn" onclick="handleLogin()" class="btn-green py-3">Login to System</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 async function handleLogin(){
   let email = document.getElementById('loginEmail').value.trim();
   let password = document.getElementById('loginPassword').value.trim();
@@ -153,14 +241,14 @@ async function handleLogin(){
     let { data, error } = await supa.auth.signInWithPassword({ email, password });
     if(error){
       alert('Login Failed: ' + error.message);
-      btn.innerText = 'Login to System';
+      btn.innerText = 'Sign In';
       btn.disabled = false;
     } else {
-      await supa.from('audit_logs').insert([{ action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
+      await supa.from('audit_logs').insert([{ action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.55.151' }]);
     }
   } catch(e) {
     alert('Error: ' + e.message);
-    btn.innerText = 'Login to System';
+    btn.innerText = 'Sign In';
     btn.disabled = false;
   }
 }
@@ -286,7 +374,6 @@ function renderView(){
   let v=document.getElementById('viewArea');
   if(!v) return;
 
-  // ==================== SUPER ADMIN VIEWS ====================
   if(CURRENT_USER_ROLE === 'super_admin'){
     if(curTab === 'admin_dash'){
       let totalAccounts = DATA.all_users.length;
@@ -302,17 +389,7 @@ function renderView(){
           <div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Active Users</div><div class="text-2xl font-bold mt-1">${activeUsers}</div></div>
           <div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px] text-slate-500 uppercase font-bold">Total Revenue</div><div class="text-2xl font-bold mt-1">Rs ${totalRevenue.toLocaleString()}</div></div>
         </div>
-        <div class="grid lg:grid-cols-2 gap-6 mb-6">
-          <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Accounts by Status</h3><div class="h-64 flex items-center justify-center"><canvas id="statusChart"></canvas></div></div>
-          <div class="card p-5"><h3 class="font-bold mb-3 text-sm">Revenue by Plan</h3><div class="h-64 flex items-center justify-center"><canvas id="planChart"></canvas></div></div>
-        </div>
       `;
-      setTimeout(() => {
-        let ctx1 = document.getElementById('statusChart')?.getContext('2d');
-        if(ctx1) new Chart(ctx1, { type: 'doughnut', data: { labels: ['Approved', 'Pending'], datasets: [{ data: [activeUsers, pendingApprovals], backgroundColor: ['#16a34a', '#f59e0b'] }] }, options: { responsive: true, maintainAspectRatio: false } });
-        let ctx2 = document.getElementById('planChart')?.getContext('2d');
-        if(ctx2) new Chart(ctx2, { type: 'bar', data: { labels: ['Enterprise', 'Professional', 'Starter'], datasets: [{ label: 'Revenue', data: [totalRevenue, 12000, 5000], backgroundColor: '#0f172a' }] }, options: { responsive: true, maintainAspectRatio: false } });
-      }, 50);
       return;
     }
     if(curTab === 'admin_accounts'){
@@ -326,11 +403,10 @@ function renderView(){
           <td class="p-3 flex gap-2">
             <button onclick="updateUserStatus('${u.id}', 'active')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold">Approve</button>
             <button onclick="updateUserStatus('${u.id}', 'pending')" class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold">Suspend</button>
-            <button onclick="saveSubDate('${u.id}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Save</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
-      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2><p class="text-xs text-slate-500">Review registrations and manage account subscriptions</p></div><div class="card p-5 mb-6"><input class="input" placeholder="🔍 Search Account by Email..." value="${ACCOUNTS_SEARCH}" oninput="ACCOUNTS_SEARCH=this.value; renderView();"></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>`;
+      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>`;
       return;
     }
     if(curTab === 'admin_audit' || curTab === 'audit'){
@@ -342,8 +418,8 @@ function renderView(){
           <td class="p-3 text-xs">${l.entity || 'User'}</td>
           <td class="p-3 font-mono text-xs text-slate-500">${l.ip || '10.31.55.151'}</td>
         </tr>
-      `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">No audit logs recorded yet</td></tr>';
-      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Audit Log</h2><p class="text-xs text-slate-500">Every action taken within your distribution</p></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">TIME</th><th class="p-3 text-left">USER</th><th class="p-3 text-left">ACTION</th><th class="p-3 text-left">ENTITY</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>`;
+      `).join('') || '<tr><td colspan=5 class="p-8 text-center text-slate-400">No logs</td></tr>';
+      v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Platform Audit Log</h2></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">TIME</th><th class="p-3 text-left">USER</th><th class="p-3 text-left">ACTION</th><th class="p-3 text-left">ENTITY</th><th class="p-3 text-left">IP</th></tr></thead><tbody>${auditRows}</tbody></table></div>`;
       return;
     }
   }
@@ -411,6 +487,20 @@ function renderView(){
     return;
   }
 
+  if(curTab==='salesman'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Add Staff / Booker</h2><button onclick="openTab('staff')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>
+      <div class="card p-5 space-y-4 max-w-xl">
+        <div><label class="text-xs font-semibold text-slate-600">Staff Name *</label><input id="smName" class="input mt-1" placeholder="Enter name"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Role</label><select id="smRole" class="input mt-1"><option value="Booker">Booker / Salesman</option><option value="Accounts">Accounts Staff</option><option value="Manager">Manager</option></select></div>
+        <div><label class="text-xs font-semibold text-slate-600">Phone</label><input id="smPhone" class="input mt-1" placeholder="Phone number"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Salary</label><input id="smSalary" type="number" class="input mt-1" placeholder="0"></div>
+        <button onclick="saveSalesman()" class="btn-green">Save Staff Member</button>
+      </div>
+    `;
+    return;
+  }
+
   if(curTab==='cust'){
     let filteredCusts = DATA.customers.filter(c => !CUST_SEARCH || (c.name||'').toLowerCase().includes(CUST_SEARCH.toLowerCase()) || (c.phone||'').toLowerCase().includes(CUST_SEARCH.toLowerCase()));
     let custRows = filteredCusts.map(c => `
@@ -427,9 +517,23 @@ function renderView(){
     `).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Koi customer nahi mila</td></tr>';
 
     v.innerHTML = `
-      <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Customers</h2><p class="text-xs text-slate-500">Search and manage customer records</p></div><button onclick="openTab('cust')" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Register customer</button></div>
+      <div class="mb-6 flex justify-between items-center"><div><h2 class="text-xl font-bold text-slate-800">Customers</h2><p class="text-xs text-slate-500">Search and manage customer records</p></div><button onclick="openCustForm()" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Register customer</button></div>
       <div class="card p-5 mb-6"><input class="input" placeholder="🔍 Search Customer by Name or Phone..." value="${CUST_SEARCH}" oninput="CUST_SEARCH=this.value; renderView();"></div>
       <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">CUSTOMER</th><th class="p-3 text-left">AREA</th><th class="p-3 text-left">BALANCE</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${custRows}</tbody></table></div>
+    `;
+    return;
+  }
+
+  if(curTab==='cust_form'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">${EDIT_CUST_ID ? 'Edit Customer' : 'Register Customer'}</h2><button onclick="openTab('cust')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>
+      <div class="card p-6 space-y-4 max-w-xl">
+        <div><label class="text-xs font-semibold text-slate-600">Customer Name *</label><input id="cName" class="input mt-1" placeholder="Name"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Phone</label><input id="cPhone" class="input mt-1" placeholder="Phone"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Area</label><input id="cArea" class="input mt-1" placeholder="Area / City"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Bill Type</label><select id="cBillType" class="input mt-1"><option value="simple">Simple Bill</option><option value="tax">Tax Invoice</option></select></div>
+        <button onclick="saveCustomer()" class="btn-green">Save Customer</button>
+      </div>
     `;
     return;
   }
@@ -470,6 +574,139 @@ function renderView(){
       </div>
     `;
     setTimeout(() => { if(SELECTED_SALESMAN_ID && document.getElementById('saleSalesman')) document.getElementById('saleSalesman').value = SELECTED_SALESMAN_ID; calculateSaleTotals(); }, 50);
+    return;
+  }
+
+  if(curTab==='purchase'){
+    let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
+    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
+    let pRows = PURCHASE_ITEMS.map((item, idx) => `
+      <tr class="border-b"><td class="p-3 font-semibold">${item.name}</td><td class="p-3">Rs ${item.rate}</td><td class="p-3">${item.qty}</td><td class="p-3 font-bold">Rs ${(item.rate * item.qty).toLocaleString()}</td><td class="p-3 text-center"><button onclick="removePurchaseItem(${idx})" class="text-red-500 font-bold">✕</button></td></tr>
+    `).join('');
+    let pGrandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
+
+    v.innerHTML = `
+      <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Purchases</h2><p class="text-xs text-slate-500">Manage vendor purchases</p></div>
+      <div class="grid md:grid-cols-3 gap-6">
+        <div class="card p-5 md:col-span-1 space-y-4">
+          <div><label class="text-xs font-semibold text-slate-500">Select Vendor *</label><select id="purchaseVendor" class="input mt-1"><option value="">Select Vendor</option>${compOptions}</select></div>
+          <div><label class="text-xs font-semibold text-slate-500">Date *</label><input id="purchaseDate" type="date" class="input mt-1" value="${new Date().toISOString().split('T')[0]}"></div>
+          <div class="border-t pt-4 space-y-3">
+            <div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="purchaseItem" onchange="onPurchaseItemChange()" class="input mt-1"><option value="">Select Item</option>${itemOptions}</select></div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="text-xs font-semibold text-slate-500">Rate</label><input id="purchaseRate" type="number" class="input mt-1" placeholder="0"></div>
+              <div><label class="text-xs font-semibold text-slate-500">Qty</label><input id="purchaseQty" type="number" class="input mt-1" value="1" min="1"></div>
+            </div>
+            <button onclick="addItemToPurchase()" class="btn-dark mt-2">+ Add Item</button>
+          </div>
+        </div>
+        <div class="card p-5 md:col-span-2 flex flex-col justify-between">
+          <div>
+            <h3 class="font-bold text-lg border-b pb-2 mb-4">Purchase Items (${PURCHASE_ITEMS.length})</h3>
+            <div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Rate</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>${pRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">No items added</td></tr>'}</tbody></table></div>
+          </div>
+          <div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl flex justify-between items-center">
+            <div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600">Rs <span id="lblPurchaseGrandTotal">${pGrandTotal.toLocaleString()}</span></div></div>
+            <button onclick="saveFinalPurchase()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">Save Purchase</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if(curTab==='history'){
+    let billRows = DATA.bills.map(b => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-mono text-xs">${b.invoice_no}</td>
+        <td class="p-3 text-xs">${new Date(b.created_at).toLocaleDateString()}</td>
+        <td class="p-3 font-bold">Rs ${Number(b.total_amount||0).toLocaleString()}</td>
+        <td class="p-3"><button onclick="printInvoice('${b.id}')" class="px-2 py-1 bg-green-600 text-white rounded text-xs">🖨️ Print</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">No sales history</td></tr>';
+    v.innerHTML = `<div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Sales History</h2></div><div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">INVOICE</th><th class="p-3 text-left">DATE</th><th class="p-3 text-left">AMOUNT</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${billRows}</tbody></table></div>`;
+    return;
+  }
+
+  if(curTab==='item'){
+    let itemRows = DATA.items.map(it => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-semibold">${it.name}</td>
+        <td class="p-3 font-bold">Rs ${it.sale_price || 0}</td>
+        <td class="p-3">${it.current_stock || 0}</td>
+        <td class="p-3"><button onclick="delItem('${it.id}')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">No items</td></tr>';
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Inventory Items</h2><button onclick="openItemForm()" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Add Item</button></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">ITEM</th><th class="p-3 text-left">SALE PRICE</th><th class="p-3 text-left">STOCK</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${itemRows}</tbody></table></div>
+    `;
+    return;
+  }
+
+  if(curTab==='item_form'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Add Item</h2><button onclick="openTab('item')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>
+      <div class="card p-6 space-y-4 max-w-xl">
+        <div><label class="text-xs font-semibold text-slate-600">Item Name *</label><input id="iName" class="input mt-1" placeholder="Name"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Sale Price *</label><input id="iSale" type="number" class="input mt-1" placeholder="0"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Opening Stock</label><input id="iStock" type="number" class="input mt-1" placeholder="0"></div>
+        <button onclick="saveItem()" class="btn-green">Save Item</button>
+      </div>
+    `;
+    return;
+  }
+
+  if(curTab==='company'){
+    let compRows = DATA.companies.map(c => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-semibold">${c.name}</td>
+        <td class="p-3">${c.phone || '-'}</td>
+        <td class="p-3"><button onclick="openLedger('${c.id}')" class="px-2.5 py-1 bg-green-600 text-white rounded text-xs">Ledger</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">No vendors</td></tr>';
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Vendors</h2><button onclick="openCompForm()" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Add Vendor</button></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">VENDOR</th><th class="p-3 text-left">PHONE</th><th class="p-3 text-left">ACTION</th></tr></thead><tbody>${compRows}</tbody></table></div>
+    `;
+    return;
+  }
+
+  if(curTab==='company_form'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Add Vendor</h2><button onclick="openTab('company')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>
+      <div class="card p-6 space-y-4 max-w-xl">
+        <div><label class="text-xs font-semibold text-slate-600">Vendor Name *</label><input id="compName" class="input mt-1" placeholder="Name"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Phone</label><input id="compPhone" class="input mt-1" placeholder="Phone"></div>
+        <button onclick="saveCompany()" class="btn-green">Save Vendor</button>
+      </div>
+    `;
+    return;
+  }
+
+  if(curTab==='banks'){
+    let bankRows = DATA.banks.map(b => `
+      <tr class="border-b hover:bg-slate-50">
+        <td class="p-3 font-semibold">${b.name}</td>
+        <td class="p-3 font-mono text-xs">${b.account_no || '-'}</td>
+      </tr>
+    `).join('') || '<tr><td colspan=2 class="p-8 text-center text-slate-400">No banks</td></tr>';
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Banks & Wallets</h2><button onclick="openBankForm()" class="bg-green-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold">+ Add Bank</button></div>
+      <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">BANK / WALLET</th><th class="p-3 text-left">ACCOUNT NO</th></tr></thead><tbody>${bankRows}</tbody></table></div>
+    `;
+    return;
+  }
+
+  if(curTab==='bank_form'){
+    v.innerHTML = `
+      <div class="mb-6 flex justify-between items-center"><h2 class="text-xl font-bold text-slate-800">Add Bank</h2><button onclick="openTab('banks')" class="border px-4 py-2 rounded-xl text-sm">← Back</button></div>
+      <div class="card p-6 space-y-4 max-w-xl">
+        <div><label class="text-xs font-semibold text-slate-600">Bank Name *</label><input id="bName" class="input mt-1" placeholder="Meezan, EasyPaisa"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Account No</label><input id="bAcc" class="input mt-1" placeholder="Number"></div>
+        <button onclick="saveBank()" class="btn-green">Save Bank</button>
+      </div>
+    `;
     return;
   }
 
@@ -518,6 +755,20 @@ function renderView(){
     `;
     return;
   }
+
+  if(curTab==='ledger'){
+    let c = DATA.companies.find(x => String(x.id) === String(CUR_COMPANY));
+    if(!c){ openTab('company'); return; }
+    v.innerHTML = `<div class="card p-6"><h3 class="font-bold mb-4">${c.name} - Vendor Ledger</h3><button onclick="openTab('company')" class="border px-4 py-2 rounded text-sm">← Back</button></div>`;
+    return;
+  }
+
+  if(curTab==='cust_ledger'){
+    let c = DATA.customers.find(x => String(x.id) === String(CUR_CUSTOMER));
+    if(!c){ openTab('cust'); return; }
+    v.innerHTML = `<div class="card p-6"><h3 class="font-bold mb-4">${c.name} - Customer Ledger</h3><button onclick="openTab('cust')" class="border px-4 py-2 rounded text-sm">← Back</button></div>`;
+    return;
+  }
 }
 
 async function updateUserStatus(userId, status){
@@ -526,10 +777,73 @@ async function updateUserStatus(userId, status){
   loadAll();
 }
 
-async function saveSubDate(userId){
-  let subDate = document.getElementById('sub_' + userId).value;
-  await supa.from('profiles').update({ subscription_end: subDate || null }).eq('id', userId);
-  alert('Subscription saved!');
+function openCustForm(){ EDIT_CUST_ID = null; openTab('cust_form'); }
+function openItemForm(){ EDIT_ITEM_ID = null; openTab('item_form'); }
+function openCompForm(){ EDIT_COMP_ID = null; openTab('company_form'); }
+function openBankForm(){ EDIT_BANK_ID = null; openTab('bank_form'); }
+
+async function saveSalesman(){
+  let name = document.getElementById('smName').value.trim();
+  if(!name) return alert('Name likhein!');
+  await supa.from('salesmen').insert([{
+    name: name,
+    role: document.getElementById('smRole').value,
+    phone: document.getElementById('smPhone').value,
+    salary: Number(document.getElementById('smSalary').value || 0)
+  }]);
+  alert('Staff added successfully!');
+  openTab('staff');
+  loadAll();
+}
+
+async function saveCustomer(){
+  let name = document.getElementById('cName').value.trim();
+  if(!name) return alert('Name likhein!');
+  await supa.from('customers').insert([{
+    name: name,
+    phone: document.getElementById('cPhone').value,
+    area: document.getElementById('cArea').value,
+    default_bill_type: document.getElementById('cBillType').value
+  }]);
+  alert('Customer saved!');
+  openTab('cust');
+  loadAll();
+}
+
+async function saveItem(){
+  let name = document.getElementById('iName').value.trim();
+  if(!name) return alert('Name likhein!');
+  await supa.from('items').insert([{
+    name: name,
+    sale_price: Number(document.getElementById('iSale').value || 0),
+    current_stock: Number(document.getElementById('iStock').value || 0)
+  }]);
+  alert('Item saved!');
+  openTab('item');
+  loadAll();
+}
+
+async function saveCompany(){
+  let name = document.getElementById('compName').value.trim();
+  if(!name) return alert('Name likhein!');
+  await supa.from('companies').insert([{
+    name: name,
+    phone: document.getElementById('compPhone').value
+  }]);
+  alert('Vendor saved!');
+  openTab('company');
+  loadAll();
+}
+
+async function saveBank(){
+  let name = document.getElementById('bName').value.trim();
+  if(!name) return alert('Name likhein!');
+  await supa.from('banks').insert([{
+    name: name,
+    account_no: document.getElementById('bAcc').value
+  }]);
+  alert('Bank saved!');
+  openTab('banks');
   loadAll();
 }
 
@@ -574,8 +888,60 @@ async function saveFinalBill(){
   loadAll();
 }
 
+function onPurchaseItemChange(){
+  let itemId = document.getElementById('purchaseItem')?.value;
+  let it = DATA.items.find(x => String(x.id) === String(itemId));
+  if(it && document.getElementById('purchaseRate')) document.getElementById('purchaseRate').value = it.sale_price || 0;
+}
+
+function addItemToPurchase(){
+  let itemId = document.getElementById('purchaseItem')?.value;
+  let rate = Number(document.getElementById('purchaseRate')?.value || 0);
+  let qty = Number(document.getElementById('purchaseQty')?.value || 1);
+  let it = DATA.items.find(x => String(x.id) === String(itemId));
+  if(!it) return alert('Select item!');
+  PURCHASE_ITEMS.push({ id: it.id, name: it.name, rate: rate, qty: qty });
+  renderView();
+}
+
+function removePurchaseItem(idx){
+  PURCHASE_ITEMS.splice(idx, 1);
+  renderView();
+}
+
+async function saveFinalPurchase(){
+  let vendorId = document.getElementById('purchaseVendor')?.value;
+  let pDate = document.getElementById('purchaseDate')?.value;
+  if(!vendorId) return alert('Select vendor!');
+  if(PURCHASE_ITEMS.length === 0) return alert('Add items!');
+  let grandTotal = PURCHASE_ITEMS.reduce((s,i)=>s+(i.rate*i.qty),0);
+  let billNo = 'PUR-' + Math.floor(1000 + Math.random() * 9000);
+  let { data } = await supa.from('purchases').insert([{ vendor_id: vendorId, bill_no: billNo, total_amount: grandTotal, purchase_date: pDate }]).select();
+  let pId = data && data.length ? data[0].id : null;
+  for(let pi of PURCHASE_ITEMS){
+    if(pId) await supa.from('purchase_items').insert([{ purchase_id: pId, item_id: pi.id, quantity: pi.qty, rate: pi.rate, total: pi.rate * pi.qty }]);
+  }
+  alert('Purchase saved successfully!');
+  PURCHASE_ITEMS = [];
+  loadAll();
+}
+
+function printInvoice(id){
+  let b = DATA.bills.find(x => String(x.id) === String(id));
+  if(!b) return;
+  let w = window.open('','_blank','width=600,height=600');
+  w.document.write('<h3>Invoice: '+b.invoice_no+'</h3><p>Total: Rs '+b.total_amount+'</p><script>window.print();<\/script>');
+  w.document.close();
+}
+
+function openCustLedger(id){ CUR_CUSTOMER = id; curTab = 'cust_ledger'; renderView(); }
+function openLedger(id){ CUR_COMPANY = id; curTab = 'ledger'; renderView(); }
+function delCust(id){ supa.from('customers').delete().eq('id', id).then(()=>loadAll()); }
+function delItem(id){ supa.from('items').delete().eq('id', id).then(()=>loadAll()); }
+function delSalesman(id){ supa.from('salesmen').delete().eq('id', id).then(()=>loadAll()); }
+
 initAuth();
-setInterval(() => { document.querySelectorAll('a[href*="netlify"]').forEach(e => e.remove()); }, 1000);
+setInterval(() => { document.querySelectorAll('a[href*="netlify"],div[class*="netlify"]').forEach(e => e.remove()); }, 1000);
 </script>
 
 </body>
