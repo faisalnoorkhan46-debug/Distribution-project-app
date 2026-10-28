@@ -251,19 +251,8 @@ async function handleLogin(){
   btn.disabled = true;
 
   try {
-    // 1. Try Supabase Auth Login (for Admin / Owners)
-    let { data, error } = await supa.auth.signInWithPassword({ email, password });
-    if(!error && data.user){
-      let uid = data.user.id;
-      await supa.from('audit_logs').insert([{ user_id: uid, action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
-      return;
-    }
-
-    // 2. If Supabase Auth fails, check in 'staff' table
+    // 1. Pehle 'staff' table mein check karein (taake 400 bad request error console mein na aaye)
     let { data: staffList, error: staffErr } = await supa.from('staff').select('*').eq('email', email).eq('password', password);
-    if(staffErr){
-      console.warn("Staff query error:", staffErr.message);
-    }
     if(staffList && staffList.length > 0){
       LOGGED_IN_STAFF = staffList[0];
       CURRENT_USER_ROLE = (LOGGED_IN_STAFF.role || 'user').toLowerCase();
@@ -272,6 +261,14 @@ async function handleLogin(){
       alert('Staff Login Successful as ' + LOGGED_IN_STAFF.role + '!');
       renderMainLayout();
       loadAll();
+      return;
+    }
+
+    // 2. Agar staff nahi hai, toh Supabase Auth (Admin / Owner) login try karein
+    let { data, error } = await supa.auth.signInWithPassword({ email, password });
+    if(!error && data.user){
+      let uid = data.user.id;
+      await supa.from('audit_logs').insert([{ user_id: uid, action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
       return;
     }
 
