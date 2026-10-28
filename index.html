@@ -36,6 +36,7 @@ let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
 let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 let CURRENT_USER_ROLE = 'user';
+let LOGGED_IN_STAFF = null;
 
 let ADMIN_TABS=[
   {id:'admin_dash',label:'Dashboard',icon:'📊'},
@@ -63,11 +64,17 @@ let TABS = USER_TABS;
 let curTab = 'dash';
 
 async function getUserId(){
+  if(LOGGED_IN_STAFF) return LOGGED_IN_STAFF.user_id;
   let { data: { user } } = await supa.auth.getUser();
   return user ? user.id : null;
 }
 
 async function initAuth(){
+  if(LOGGED_IN_STAFF){
+    renderMainLayout();
+    loadAll();
+    return;
+  }
   let { data: { session } } = await supa.auth.getSession();
   if(!session){
     renderWelcomeScreen();
@@ -76,10 +83,12 @@ async function initAuth(){
   }
 
   supa.auth.onAuthStateChange(async (event, session) => {
-    if(!session){
-      renderWelcomeScreen();
-    } else {
-      await checkUserPermissions(session.user);
+    if(!LOGGED_IN_STAFF){
+      if(!session){
+        renderWelcomeScreen();
+      } else {
+        await checkUserPermissions(session.user);
+      }
     }
   });
 }
@@ -122,8 +131,8 @@ function renderLoginModal(){
         </div>
         <div class="space-y-4">
           <div>
-            <label class="text-xs font-semibold text-slate-600">Email Address *</label>
-            <input id="loginEmail" type="email" class="input mt-1" placeholder="Enter email">
+            <label class="text-xs font-semibold text-slate-600">Email Address / Username *</label>
+            <input id="loginEmail" type="text" class="input mt-1" placeholder="Enter email or username">
           </div>
           <div>
             <label class="text-xs font-semibold text-slate-600">Password *</label>
@@ -242,15 +251,30 @@ async function handleLogin(){
   btn.disabled = true;
 
   try {
+    // 1. Try Supabase Auth Login (for Admin / Owners)
     let { data, error } = await supa.auth.signInWithPassword({ email, password });
-    if(error){
-      alert('Login Failed: ' + error.message);
-      btn.innerText = 'Login to System';
-      btn.disabled = false;
-    } else {
-      let uid = data.user ? data.user.id : null;
+    if(!error && data.user){
+      let uid = data.user.id;
       await supa.from('audit_logs').insert([{ user_id: uid, action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
+      return;
     }
+
+    // 2. If Supabase Auth fails, check in 'staff' table
+    let { data: staffList, error: staffErr } = await supa.from('staff').select('*').eq('email', email).eq('password', password);
+    if(staffList && staffList.length > 0){
+      LOGGED_IN_STAFF = staffList[0];
+      CURRENT_USER_ROLE = (LOGGED_IN_STAFF.role || 'user').toLowerCase();
+      TABS = USER_TABS;
+      curTab = 'dash';
+      alert('Staff Login Successful as ' + LOGGED_IN_STAFF.role + '!');
+      renderMainLayout();
+      loadAll();
+      return;
+    }
+
+    alert('Login Failed: Invalid login credentials');
+    btn.innerText = 'Login to System';
+    btn.disabled = false;
   } catch(e) {
     alert('Error: ' + e.message);
     btn.innerText = 'Login to System';
@@ -260,15 +284,21 @@ async function handleLogin(){
 
 async function handleLogout(){
   if(!confirm('Kya aap system se logout karna chahte hain?')) return;
+  if(LOGGED_IN_STAFF){
+    LOGGED_IN_STAFF = null;
+    CURRENT_USER_ROLE = 'user';
+    renderLoginModal();
+    return;
+  }
   await supa.auth.signOut();
 }
 
 function renderMainLayout(){
-  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : 'QNH System User';
+  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : (LOGGED_IN_STAFF ? 'Staff (' + LOGGED_IN_STAFF.role + ')' : 'QNH System User');
   document.getElementById('appContainer').innerHTML = `
     <div class="flex min-h-screen">
       <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
-        <div class="flex items-center gap-3 mb-6"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : 'Distribution System'}</div></div></div>
+        <div class="flex items-center gap-3 mb-6"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : (LOGGED_IN_STAFF ? LOGGED_IN_STAFF.role + ' Portal' : 'Distribution System')}</div></div></div>
         <nav id="sideNav" class="space-y-1.5 flex-1 overflow-y-auto pr-1 max-h-[calc(100vh-180px)]"></nav>
         <div class="pt-4 border-t space-y-3">
           <button onclick="handleLogout()" class="w-full text-left px-3.5 py-2.5 rounded-xl flex gap-3 text-[14px] text-red-600 hover:bg-red-50 font-bold items-center"><span>🚪</span> Logout</button>
@@ -323,9 +353,8 @@ function toggleMobileMenu(){
 
 async function safeLoad(table){
   try{
-    let { data: { user } } = await supa.auth.getUser();
-    if(!user) return [];
-    let userId = user.id;
+    let userId = await getUserId();
+    if(!userId) return [];
 
     let res;
     if(table==='bills') res = await supa.from('bills').select('*').eq('user_id', userId).order('created_at',{ascending:false}).limit(300);
@@ -633,7 +662,7 @@ function renderView(){
     v.innerHTML='<div class="card p-5 mb-6"><h3 id="staffTitle" class="font-bold mb-3">Add New Staff (Booker, Accountant, etc.)</h3>'+
       '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
         '<input id="stName" class="input" placeholder="Staff Name *">'+
-        '<input id="stEmail" type="email" class="input" placeholder="Email / Username *">'+
+        '<input id="stEmail" type="text" class="input" placeholder="Email / Username *">'+
         '<input id="stPass" type="text" class="input" placeholder="Password *">'+
         '<select id="stRole" class="input"><option value="Booker">Booker</option><option value="Accountant">Accountant</option><option value="Manager">Manager</option><option value="Other">Other</option></select>'+
       '</div>'+
