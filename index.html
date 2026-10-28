@@ -261,6 +261,9 @@ async function handleLogin(){
 
     // 2. If Supabase Auth fails, check in 'staff' table
     let { data: staffList, error: staffErr } = await supa.from('staff').select('*').eq('email', email).eq('password', password);
+    if(staffErr){
+      console.warn("Staff query error:", staffErr.message);
+    }
     if(staffList && staffList.length > 0){
       LOGGED_IN_STAFF = staffList[0];
       CURRENT_USER_ROLE = (LOGGED_IN_STAFF.role || 'user').toLowerCase();
