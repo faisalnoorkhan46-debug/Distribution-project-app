@@ -268,8 +268,8 @@ function renderMainLayout(){
   document.getElementById('appContainer').innerHTML = `
     <div class="flex min-h-screen">
       <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
-        <div class="flex items-center gap-3 mb-8"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : 'Distribution System'}</div></div></div>
-        <nav id="sideNav" class="space-y-1.5 flex-1"></nav>
+        <div class="flex items-center gap-3 mb-6"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : 'Distribution System'}</div></div></div>
+        <nav id="sideNav" class="space-y-1.5 flex-1 overflow-y-auto pr-1 max-h-[calc(100vh-180px)]"></nav>
         <div class="pt-4 border-t space-y-3">
           <button onclick="handleLogout()" class="w-full text-left px-3.5 py-2.5 rounded-xl flex gap-3 text-[14px] text-red-600 hover:bg-red-50 font-bold items-center"><span>🚪</span> Logout</button>
           <div class="text-[10px] text-slate-400">✅ Secure Session Active</div>
