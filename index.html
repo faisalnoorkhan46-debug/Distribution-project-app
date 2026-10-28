@@ -30,10 +30,10 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[]};
-let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null;
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[]};
+let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null, EDIT_STAFF_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
-let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
+let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 let CURRENT_USER_ROLE = 'user';
 
@@ -52,6 +52,7 @@ let USER_TABS=[
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
   {id:'salesman',label:'Salesmen',icon:'👨‍💼'},
+  {id:'staff_mgmt',label:'Staff Management',icon:'🧑‍💻'},
   {id:'reports',label:'Reports',icon:'📈'},
   {id:'banks',label:'Banks & Accounts',icon:'🏦'},
   {id:'item',label:'Items',icon:'📦'},
@@ -335,6 +336,7 @@ async function safeLoad(table){
     else if(table==='customers') res = await supa.from('customers').select('*').eq('user_id', userId).order('name');
     else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').eq('user_id', userId).order('created_at',{ascending:false});
     else if(table==='salesmen') res = await supa.from('salesmen').select('*').eq('user_id', userId).order('name');
+    else if(table==='staff') res = await supa.from('staff').select('*').eq('user_id', userId).order('name');
     else if(table==='profiles') res = await supa.from('profiles').select('*').order('email');
     else if(table==='audit_logs') res = (CURRENT_USER_ROLE === 'super_admin') ? await supa.from('audit_logs').select('*').order('created_at', {ascending:false}).limit(50) : await supa.from('audit_logs').select('*').eq('user_id', userId).order('created_at', {ascending:false}).limit(50);
     else res = await supa.from('items').select('*').eq('user_id', userId).order('name');
@@ -356,6 +358,7 @@ async function loadAll(){
   DATA.banks = await safeLoad('banks');
   DATA.purchases = await safeLoad('purchases');
   DATA.salesmen = await safeLoad('salesmen');
+  DATA.staff = await safeLoad('staff');
   DATA.all_users = await safeLoad('profiles');
   DATA.audit_logs = await safeLoad('audit_logs');
   renderView();
@@ -613,6 +616,32 @@ function renderView(){
     '<div class="card p-5 mb-6"><input id="smSearchInput" class="input" placeholder="🔍 Search Salesman by Name, City, Area, or Phone..." value="'+SALESMAN_SEARCH+'" oninput="SALESMAN_SEARCH=this.value; renderView();"></div>'+
     '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Salesman Name & Phone</th><th class="p-3 text-left">City / Area</th><th class="p-3 text-left">Salary & Commission</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+smRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('smSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+    return;
+  }
+
+  // ==================== STAFF MANAGEMENT TAB ====================
+  if(curTab==='staff_mgmt'){
+    let filteredStaff = DATA.staff.filter(st => {
+      let q = STAFF_SEARCH.toLowerCase();
+      return !q || (st.name||'').toLowerCase().includes(q) || (st.email||'').toLowerCase().includes(q) || (st.role||'').toLowerCase().includes(q);
+    });
+
+    let staffRows = filteredStaff.map(st => {
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+st.name+'<div class="text-xs text-slate-400">Email: '+st.email+'</div></td><td class="p-3"><span class="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">'+st.role+'</span></td><td class="p-3 font-mono text-xs text-slate-600">'+st.password+'</td><td class="p-3 flex gap-1"><button onclick="editStaff(\''+st.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delStaff(\''+st.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
+    }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Abhi koi staff add nahi hua</td></tr>';
+
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="staffTitle" class="font-bold mb-3">Add New Staff (Booker, Accountant, etc.)</h3>'+
+      '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
+        '<input id="stName" class="input" placeholder="Staff Name *">'+
+        '<input id="stEmail" type="email" class="input" placeholder="Email / Username *">'+
+        '<input id="stPass" type="text" class="input" placeholder="Password *">'+
+        '<select id="stRole" class="input"><option value="Booker">Booker</option><option value="Accountant">Accountant</option><option value="Manager">Manager</option><option value="Other">Other</option></select>'+
+      '</div>'+
+      '<div class="flex gap-2 mt-4"><button id="staffBtn" onclick="saveStaffMember()" class="btn-green flex-1">Save Staff Member</button><button id="staffCancel" onclick="cancelStaff()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
+    '</div>'+
+    '<div class="card p-5 mb-6"><input id="staffSearchInput" class="input" placeholder="🔍 Search Staff by Name, Email, or Role..." value="'+STAFF_SEARCH+'" oninput="STAFF_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Staff Name & Email</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Password</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('staffSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
 
@@ -945,6 +974,57 @@ function renderView(){
     }, 50);
     return;
   }
+}
+
+// ==================== STAFF MANAGEMENT FUNCTIONS ====================
+async function saveStaffMember(){
+  let name = document.getElementById('stName').value.trim();
+  let email = document.getElementById('stEmail').value.trim();
+  let password = document.getElementById('stPass').value.trim();
+  let role = document.getElementById('stRole').value;
+  if(!name || !email || !password) return alert('Name, Email aur Password zaroori hain!');
+  
+  let uid = await getUserId();
+  let payload = { user_id: uid, name: name, email: email, password: password, role: role };
+  
+  if(EDIT_STAFF_ID){
+    let { error } = await supa.from('staff').update(payload).eq('id', EDIT_STAFF_ID);
+    if(error){ alert(error.message); return; }
+    cancelStaff(); loadAll(); return;
+  }
+  let { error } = await supa.from('staff').insert([payload]);
+  if(error){ alert(error.message); return; }
+  cancelStaff(); loadAll();
+}
+
+function editStaff(id){
+  let st = DATA.staff.find(x => String(x.id) === String(id));
+  if(!st) return;
+  EDIT_STAFF_ID = id;
+  document.getElementById('stName').value = st.name || '';
+  document.getElementById('stEmail').value = st.email || '';
+  document.getElementById('stPass').value = st.password || '';
+  document.getElementById('stRole').value = st.role || 'Booker';
+  document.getElementById('staffTitle').innerText = 'Edit Staff Member';
+  document.getElementById('staffBtn').innerText = 'Update Staff';
+  document.getElementById('staffCancel').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelStaff(){
+  EDIT_STAFF_ID = null;
+  ['stName', 'stEmail', 'stPass'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  if(document.getElementById('stRole')) document.getElementById('stRole').value = 'Booker';
+  document.getElementById('staffTitle').innerText = 'Add New Staff (Booker, Accountant, etc.)';
+  document.getElementById('staffBtn').innerText = 'Save Staff Member';
+  document.getElementById('staffCancel').classList.add('hidden');
+}
+
+async function delStaff(id){
+  if(!confirm('Kya aap is staff member ko delete karna chahte hain?')) return;
+  let { error } = await supa.from('staff').delete().eq('id', id);
+  if(error){ alert('Error: ' + error.message); return; }
+  loadAll();
 }
 
 async function updateUserStatus(userId, status){
