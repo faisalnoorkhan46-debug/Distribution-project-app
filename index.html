@@ -30,7 +30,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[]};
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[], staff_roles:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null, EDIT_STAFF_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
 let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
@@ -62,6 +62,67 @@ let USER_TABS=[
 
 let TABS = USER_TABS;
 let curTab = 'dash';
+
+// ==================== ROLES & PERMISSIONS ====================
+const PERM_TABS = [
+  {id:'dash',label:'Dashboard',icon:'📊'},
+  {id:'sale',label:'New Sale',icon:'🧾'},
+  {id:'purchase',label:'New Purchase',icon:'🛒'},
+  {id:'history',label:'Sales History',icon:'📜'},
+  {id:'cust',label:'Customers',icon:'👥'},
+  {id:'salesman',label:'Salesmen',icon:'👨‍💼'},
+  {id:'reports',label:'Reports',icon:'📈'},
+  {id:'banks',label:'Banks & Accounts',icon:'🏦'},
+  {id:'item',label:'Items',icon:'📦'},
+  {id:'company',label:'Vendors',icon:'🏢'}
+];
+let STAFF_FORM = { name:'', email:'', pass:'', role_id:'' };
+let ROLE_FORM = { name:'', perms:[] };
+let EDIT_ROLE_ID = null;
+
+function esc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function permLabel(id){ let p = PERM_TABS.find(x=>x.id===id); return p ? p.label : id; }
+function findRoleForStaff(st){
+  if(!st) return null;
+  let r = st.role_id ? DATA.staff_roles.find(x => String(x.id) === String(st.role_id)) : null;
+  if(!r) r = DATA.staff_roles.find(x => (x.name||'').toLowerCase() === (st.role||'').toLowerCase());
+  return r || null;
+}
+function staffAllowedIds(){
+  if(!LOGGED_IN_STAFF) return null;
+  let r = findRoleForStaff(LOGGED_IN_STAFF);
+  return (r && Array.isArray(r.permissions)) ? r.permissions : [];
+}
+function canAccessTab(id){
+  if(!LOGGED_IN_STAFF) return true;
+  if(id === 'staff_mgmt') return false;
+  let map = { cust_ledger:'cust', ledger:'company' };
+  let allowed = staffAllowedIds() || [];
+  return allowed.includes(map[id] || id);
+}
+function refreshStaffTabs(){
+  if(!LOGGED_IN_STAFF) return;
+  let allowed = staffAllowedIds() || [];
+  TABS = USER_TABS.filter(t => t.id !== 'staff_mgmt' && allowed.includes(t.id));
+  if(!canAccessTab(curTab)) curTab = TABS.length ? TABS[0].id : 'none';
+  renderSide();
+  let titleEl = document.getElementById('pageTitle');
+  if(titleEl) titleEl.innerText = TABS.find(x=>x.id===curTab)?.label || 'System';
+}
+async function seedDefaultRoles(){
+  let uid = await getUserId();
+  if(!uid) return;
+  let all = PERM_TABS.map(p=>p.id);
+  await supa.from('staff_roles').insert([
+    { user_id: uid, name: 'Booker', permissions: ['sale','history','cust'] },
+    { user_id: uid, name: 'Accountant', permissions: ['dash','purchase','history','cust','banks','reports','company'] },
+    { user_id: uid, name: 'Manager', permissions: all }
+  ]);
+  DATA.staff_roles = await safeLoad('staff_roles');
+}
+
 
 async function getUserId(){
   if(LOGGED_IN_STAFF) return LOGGED_IN_STAFF.user_id;
@@ -256,9 +317,9 @@ async function handleLogin(){
     if(staffList && staffList.length > 0){
       LOGGED_IN_STAFF = staffList[0];
       CURRENT_USER_ROLE = (LOGGED_IN_STAFF.role || 'user').toLowerCase();
-      TABS = USER_TABS;
       curTab = 'dash';
-      alert('Staff Login Successful as ' + LOGGED_IN_STAFF.role + '!');
+      DATA.staff_roles = await safeLoad('staff_roles');
+      refreshStaffTabs();
       renderMainLayout();
       loadAll();
       return;
@@ -319,6 +380,8 @@ function renderMainLayout(){
     </div>
   `;
   renderSide();
+  let t0 = document.getElementById('pageTitle');
+  if(t0) t0.innerText = TABS.find(x=>x.id===curTab)?.label || 'Dashboard';
 }
 
 function renderSide(){
@@ -330,6 +393,7 @@ function renderSide(){
 }
 
 function openTab(id){
+  if(!canAccessTab(id)) return alert('Is tab ka access aap ke role mein nahi hai.');
   curTab=id;
   renderSide();
   let titleEl = document.getElementById('pageTitle');
@@ -365,6 +429,7 @@ async function safeLoad(table){
     else if(table==='customers') res = await supa.from('customers').select('*').eq('user_id', userId).order('name');
     else if(table==='purchases') res = await supa.from('purchases').select('*, purchase_items(*)').eq('user_id', userId).order('created_at',{ascending:false});
     else if(table==='salesmen') res = await supa.from('salesmen').select('*').eq('user_id', userId).order('name');
+    else if(table==='staff_roles') res = await supa.from('staff_roles').select('*').eq('user_id', userId).order('created_at',{ascending:true});
     else if(table==='staff') res = await supa.from('staff').select('*').eq('user_id', userId).order('name');
     else if(table==='profiles') res = await supa.from('profiles').select('*').order('email');
     else if(table==='audit_logs') res = (CURRENT_USER_ROLE === 'super_admin') ? await supa.from('audit_logs').select('*').order('created_at', {ascending:false}).limit(50) : await supa.from('audit_logs').select('*').eq('user_id', userId).order('created_at', {ascending:false}).limit(50);
@@ -387,9 +452,12 @@ async function loadAll(){
   DATA.banks = await safeLoad('banks');
   DATA.purchases = await safeLoad('purchases');
   DATA.salesmen = await safeLoad('salesmen');
-  DATA.staff = await safeLoad('staff');
-  DATA.all_users = await safeLoad('profiles');
+  DATA.staff = LOGGED_IN_STAFF ? [] : await safeLoad('staff');
+  DATA.staff_roles = await safeLoad('staff_roles');
+  if(!LOGGED_IN_STAFF && CURRENT_USER_ROLE !== 'super_admin' && DATA.staff_roles.length === 0) await seedDefaultRoles();
+  DATA.all_users = CURRENT_USER_ROLE === 'super_admin' ? await safeLoad('profiles') : [];
   DATA.audit_logs = await safeLoad('audit_logs');
+  if(LOGGED_IN_STAFF) refreshStaffTabs();
   renderView();
 }
 
@@ -438,6 +506,11 @@ function getLastPurchaseRate(itemId){
 function renderView(){
   let v=document.getElementById('viewArea');
   if(!v) return;
+
+  if(LOGGED_IN_STAFF && !canAccessTab(curTab)){
+    v.innerHTML = '<div class="card p-10 text-center"><div class="text-4xl mb-3">🔒</div><h3 class="font-bold text-lg mb-1">Access Nahi Hai</h3><p class="text-sm text-slate-500">Aap ke role ko koi tab assign nahi hua. Apne owner se rabta karein.</p></div>';
+    return;
+  }
 
   // ==================== SUPER ADMIN VIEWS ====================
   if(CURRENT_USER_ROLE === 'super_admin'){
@@ -650,27 +723,54 @@ function renderView(){
 
   // ==================== STAFF MANAGEMENT TAB ====================
   if(curTab==='staff_mgmt'){
+    let roleOpts = '<option value="">Select Role *</option>' + DATA.staff_roles.map(r =>
+      '<option value="'+r.id+'"'+(String(STAFF_FORM.role_id)===String(r.id)?' selected':'')+'>'+esc(r.name)+'</option>').join('');
+
     let filteredStaff = DATA.staff.filter(st => {
       let q = STAFF_SEARCH.toLowerCase();
       return !q || (st.name||'').toLowerCase().includes(q) || (st.email||'').toLowerCase().includes(q) || (st.role||'').toLowerCase().includes(q);
     });
-
     let staffRows = filteredStaff.map(st => {
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+st.name+'<div class="text-xs text-slate-400">Email: '+st.email+'</div></td><td class="p-3"><span class="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">'+st.role+'</span></td><td class="p-3 font-mono text-xs text-slate-600">'+st.password+'</td><td class="p-3 flex gap-1"><button onclick="editStaff(\''+st.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delStaff(\''+st.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
+      let r = findRoleForStaff(st);
+      let badge = r
+        ? '<span class="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">'+esc(r.name)+'</span>'
+        : '<span class="px-2.5 py-1 rounded text-xs font-bold bg-red-100 text-red-700">'+esc(st.role||'-')+' (role nahi mila)</span>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+esc(st.name)+'<div class="text-xs text-slate-400">Login: '+esc(st.email)+'</div></td><td class="p-3">'+badge+'</td><td class="p-3 font-mono text-xs text-slate-600">'+esc(st.password)+'</td><td class="p-3 flex gap-1"><button onclick="editStaff(\''+st.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delStaff(\''+st.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
     }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Abhi koi staff add nahi hua</td></tr>';
 
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="staffTitle" class="font-bold mb-3">Add New Staff (Booker, Accountant, etc.)</h3>'+
+    let permBoxes = PERM_TABS.map(p =>
+      '<label class="flex items-center gap-2 text-sm p-2 border rounded-lg bg-white cursor-pointer"><input type="checkbox" '+(ROLE_FORM.perms.includes(p.id)?'checked ':'')+'onchange="toggleRolePerm(\''+p.id+'\', this.checked)"> <span>'+p.icon+' '+p.label+'</span></label>'
+    ).join('');
+
+    let roleRows = DATA.staff_roles.map(r => {
+      let perms = Array.isArray(r.permissions) ? r.permissions : [];
+      let cnt = DATA.staff.filter(s => findRoleForStaff(s) && String(findRoleForStaff(s).id) === String(r.id)).length;
+      let tabs = perms.map(permLabel).map(esc).join(', ') || '<span class="text-slate-400">Koi access nahi</span>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+esc(r.name)+'<div class="text-xs text-slate-400">'+cnt+' staff</div></td><td class="p-3 text-xs text-slate-600">'+tabs+'</td><td class="p-3 flex gap-1"><button onclick="editRole(\''+r.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delRole(\''+r.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
+    }).join('') || '<tr><td colspan=3 class="p-8 text-center text-slate-400">Abhi koi role nahi hai</td></tr>';
+
+    v.innerHTML=
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">'+(EDIT_STAFF_ID ? 'Edit Staff Member' : 'Add New Staff')+'</h3>'+
       '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
-        '<input id="stName" class="input" placeholder="Staff Name *">'+
-        '<input id="stEmail" type="text" class="input" placeholder="Email / Username *">'+
-        '<input id="stPass" type="text" class="input" placeholder="Password *">'+
-        '<select id="stRole" class="input"><option value="Booker">Booker</option><option value="Accountant">Accountant</option><option value="Manager">Manager</option><option value="Other">Other</option></select>'+
+        '<input id="stName" class="input" placeholder="Staff Name *" value="'+esc(STAFF_FORM.name)+'" oninput="STAFF_FORM.name=this.value">'+
+        '<input id="stEmail" type="text" class="input" placeholder="Login Email / Username *" value="'+esc(STAFF_FORM.email)+'" oninput="STAFF_FORM.email=this.value">'+
+        '<input id="stPass" type="text" class="input" placeholder="Password *" value="'+esc(STAFF_FORM.pass)+'" oninput="STAFF_FORM.pass=this.value">'+
+        '<select id="stRole" class="input" onchange="STAFF_FORM.role_id=this.value">'+roleOpts+'</select>'+
       '</div>'+
-      '<div class="flex gap-2 mt-4"><button id="staffBtn" onclick="saveStaffMember()" class="btn-green flex-1">Save Staff Member</button><button id="staffCancel" onclick="cancelStaff()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
+      '<div class="text-[11px] text-slate-500 mb-3">Staff sirf wohi tabs dekh sakega jo is role mein select hain. Role neeche "Roles & Permissions" mein banta aur edit hota hai.</div>'+
+      '<div class="flex gap-2 mt-2"><button onclick="saveStaffMember()" class="btn-green flex-1">'+(EDIT_STAFF_ID ? 'Update Staff' : 'Save Staff Member')+'</button>'+(EDIT_STAFF_ID ? '<button onclick="cancelStaff()" class="border px-5 rounded-xl">Cancel</button>' : '')+'</div>'+
     '</div>'+
-    '<div class="card p-5 mb-6"><input id="staffSearchInput" class="input" placeholder="🔍 Search Staff by Name, Email, or Role..." value="'+STAFF_SEARCH+'" oninput="STAFF_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Staff Name & Email</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Password</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>';
-    setTimeout(()=>{ let el = document.getElementById('staffSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
+    '<div class="card p-5 mb-6"><input id="staffSearchInput" class="input" placeholder="🔍 Search Staff by Name, Email, or Role..." value="'+esc(STAFF_SEARCH)+'" oninput="STAFF_SEARCH=this.value; renderView();"></div>'+
+    '<div class="card p-0 overflow-auto mb-8"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Staff Name & Login</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Password</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>'+
+
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-1">Roles & Permissions — '+(EDIT_ROLE_ID ? 'Edit Role' : 'New Role')+'</h3>'+
+      '<div class="text-[11px] text-slate-500 mb-3">Role ka naam likhein aur jo tabs is role ko dikhane hain unhein tick karein. Staff Management sirf owner ko milta hai.</div>'+
+      '<input id="roleName" class="input mb-3" placeholder="Role Name (e.g. Booker) *" value="'+esc(ROLE_FORM.name)+'" oninput="ROLE_FORM.name=this.value">'+
+      '<div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">'+permBoxes+'</div>'+
+      '<div class="flex gap-2 flex-wrap"><button onclick="saveRole()" class="btn-green !w-auto px-6">'+(EDIT_ROLE_ID ? 'Update Role' : 'Save Role')+'</button><button onclick="selectAllRolePerms(true)" class="border px-4 rounded-xl text-sm">Select All</button><button onclick="selectAllRolePerms(false)" class="border px-4 rounded-xl text-sm">Clear</button>'+(EDIT_ROLE_ID ? '<button onclick="cancelRole()" class="border px-4 rounded-xl text-sm">Cancel</button>' : '')+'</div>'+
+    '</div>'+
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Role</th><th class="p-3 text-left">Access (Tabs)</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+roleRows+'</tbody></table></div>';
+    setTimeout(()=>{ let el = document.getElementById('staffSearchInput'); if(el && document.activeElement === document.body && STAFF_SEARCH){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
 
@@ -1007,52 +1107,106 @@ function renderView(){
 
 // ==================== STAFF MANAGEMENT FUNCTIONS ====================
 async function saveStaffMember(){
-  let name = document.getElementById('stName').value.trim();
-  let email = document.getElementById('stEmail').value.trim();
-  let password = document.getElementById('stPass').value.trim();
-  let role = document.getElementById('stRole').value;
-  if(!name || !email || !password) return alert('Name, Email aur Password zaroori hain!');
-  
+  let name = STAFF_FORM.name.trim();
+  let email = STAFF_FORM.email.trim();
+  let password = STAFF_FORM.pass.trim();
+  if(!name || !email || !password) return alert('Name, Email/Username aur Password zaroori hain!');
+  if(password.length < 4) return alert('Password kam az kam 4 characters ka rakhein!');
+  let role = DATA.staff_roles.find(r => String(r.id) === String(STAFF_FORM.role_id));
+  if(!role) return alert('Pehle staff ka Role select karein!');
+
+  // Login email se hota hai, is liye email poori system mein unique honi chahiye
+  let safeEmail = email.replace(/[\\%_]/g, m => '\\' + m);
+  let { data: dup } = await supa.from('staff').select('id').ilike('email', safeEmail);
+  if(dup && dup.some(d => String(d.id) !== String(EDIT_STAFF_ID))) return alert('Ye Email/Username pehle se kisi staff ke liye maujood hai. Koi aur likhein.');
+
   let uid = await getUserId();
-  let payload = { user_id: uid, name: name, email: email, password: password, role: role };
-  
+  let payload = { user_id: uid, name: name, email: email, password: password, role: role.name, role_id: role.id };
+
   if(EDIT_STAFF_ID){
     let { error } = await supa.from('staff').update(payload).eq('id', EDIT_STAFF_ID);
     if(error){ alert(error.message); return; }
-    cancelStaff(); loadAll(); return;
+    cancelStaff(); await loadAll(); return;
   }
   let { error } = await supa.from('staff').insert([payload]);
   if(error){ alert(error.message); return; }
-  cancelStaff(); loadAll();
+  cancelStaff(); await loadAll();
 }
 
 function editStaff(id){
   let st = DATA.staff.find(x => String(x.id) === String(id));
   if(!st) return;
+  let r = findRoleForStaff(st);
   EDIT_STAFF_ID = id;
-  document.getElementById('stName').value = st.name || '';
-  document.getElementById('stEmail').value = st.email || '';
-  document.getElementById('stPass').value = st.password || '';
-  document.getElementById('stRole').value = st.role || 'Booker';
-  document.getElementById('staffTitle').innerText = 'Edit Staff Member';
-  document.getElementById('staffBtn').innerText = 'Update Staff';
-  document.getElementById('staffCancel').classList.remove('hidden');
+  STAFF_FORM = { name: st.name || '', email: st.email || '', pass: st.password || '', role_id: r ? r.id : '' };
+  renderView();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cancelStaff(){
   EDIT_STAFF_ID = null;
-  ['stName', 'stEmail', 'stPass'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
-  if(document.getElementById('stRole')) document.getElementById('stRole').value = 'Booker';
-  document.getElementById('staffTitle').innerText = 'Add New Staff (Booker, Accountant, etc.)';
-  document.getElementById('staffBtn').innerText = 'Save Staff Member';
-  document.getElementById('staffCancel').classList.add('hidden');
+  STAFF_FORM = { name:'', email:'', pass:'', role_id:'' };
+  renderView();
 }
 
 async function delStaff(id){
   if(!confirm('Kya aap is staff member ko delete karna chahte hain?')) return;
   let { error } = await supa.from('staff').delete().eq('id', id);
   if(error){ alert('Error: ' + error.message); return; }
+  if(String(EDIT_STAFF_ID) === String(id)) cancelStaff();
+  loadAll();
+}
+
+// ---------- Roles ----------
+function toggleRolePerm(id, on){
+  ROLE_FORM.perms = ROLE_FORM.perms.filter(x => x !== id);
+  if(on) ROLE_FORM.perms.push(id);
+}
+function selectAllRolePerms(on){
+  ROLE_FORM.perms = on ? PERM_TABS.map(p => p.id) : [];
+  renderView();
+}
+async function saveRole(){
+  let name = ROLE_FORM.name.trim();
+  if(!name) return alert('Role ka naam likhein!');
+  if(ROLE_FORM.perms.length === 0) return alert('Kam az kam ek tab select karein!');
+  if(DATA.staff_roles.some(r => (r.name||'').toLowerCase() === name.toLowerCase() && String(r.id) !== String(EDIT_ROLE_ID))) return alert('Is naam ka role pehle se maujood hai!');
+  let uid = await getUserId();
+  let payload = { user_id: uid, name: name, permissions: ROLE_FORM.perms };
+  if(EDIT_ROLE_ID){
+    let { error } = await supa.from('staff_roles').update(payload).eq('id', EDIT_ROLE_ID);
+    if(error){ alert(error.message); return; }
+    await supa.from('staff').update({ role: name }).eq('role_id', EDIT_ROLE_ID);
+  } else {
+    let { error } = await supa.from('staff_roles').insert([payload]);
+    if(error){ alert(error.message); return; }
+  }
+  EDIT_ROLE_ID = null;
+  ROLE_FORM = { name:'', perms:[] };
+  await loadAll();
+}
+function editRole(id){
+  let r = DATA.staff_roles.find(x => String(x.id) === String(id));
+  if(!r) return;
+  EDIT_ROLE_ID = id;
+  ROLE_FORM = { name: r.name || '', perms: Array.isArray(r.permissions) ? [...r.permissions] : [] };
+  renderView();
+  setTimeout(() => { let el = document.getElementById('roleName'); if(el) el.scrollIntoView({ behavior:'smooth', block:'center' }); }, 50);
+}
+function cancelRole(){
+  EDIT_ROLE_ID = null;
+  ROLE_FORM = { name:'', perms:[] };
+  renderView();
+}
+async function delRole(id){
+  let r = DATA.staff_roles.find(x => String(x.id) === String(id));
+  if(!r) return;
+  let used = DATA.staff.filter(s => findRoleForStaff(s) && String(findRoleForStaff(s).id) === String(id)).length;
+  if(used > 0) return alert('Is role par ' + used + ' staff member hain. Pehle unka role badlein ya unhein delete karein, phir role delete hoga.');
+  if(!confirm('Role "' + r.name + '" delete karna chahte hain?')) return;
+  let { error } = await supa.from('staff_roles').delete().eq('id', id);
+  if(error){ alert('Error: ' + error.message); return; }
+  if(String(EDIT_ROLE_ID) === String(id)) cancelRole();
   loadAll();
 }
 
