@@ -76,6 +76,23 @@ const PERM_TABS = [
 ];
 // ==================== HELPERS: QTY / STOCK / SALESMAN ====================
 let AUTH_UID = null;
+let APP_READY_UID = null;
+let STAFF_BUSY = false;
+const STAFF_DOMAIN = new URL(SUPABASE_URL).host;
+
+async function callStaffAdmin(body){
+  try{
+    let { data, error } = await supa.functions.invoke('staff-admin', { body });
+    if(error){
+      let msg = error.message || 'Function error';
+      try{ let j = await error.context.json(); if(j && j.error) msg = j.error; }catch(_){}
+      if(/not found|404|Failed to send/i.test(msg)) msg = 'staff-admin function Supabase mein deploy nahi hui (ya chal nahi rahi). Guide ke mutabiq deploy karein. (' + msg + ')';
+      return { ok:false, error: msg };
+    }
+    return data || { ok:false, error:'Function se khali jawab aaya' };
+  }catch(e){ return { ok:false, error: e.message }; }
+}
+
 const PLAN_LIMITS = { 'Starter': 5, 'Professional': 25, 'Enterprise': Infinity };
 
 function parseBillItems(b){
@@ -358,13 +375,14 @@ async function initAuth(){
   }
 
   supa.auth.onAuthStateChange(async (event, session) => {
-    if(!LOGGED_IN_STAFF){
-      if(!session){
-        renderWelcomeScreen();
-      } else {
-        await checkUserPermissions(session.user);
-      }
+    if(event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') return;
+    if(!session){
+      APP_READY_UID = null;
+      renderWelcomeScreen();
+      return;
     }
+    if(APP_READY_UID === session.user.id) return;
+    await checkUserPermissions(session.user);
   });
 }
 
@@ -478,6 +496,25 @@ async function handleRegister(){
 
 async function checkUserPermissions(user){
   AUTH_UID = user.id;
+
+  // Kya ye staff member hai? (staff ka asli Supabase login hota hai)
+  let { data: staffRow } = await supa.from('staff').select('id,user_id,name,email,role,role_id,auth_user_id').eq('auth_user_id', user.id).maybeSingle();
+  if(staffRow){
+    LOGGED_IN_STAFF = staffRow;
+    CURRENT_USER_ROLE = 'staff';
+    curTab = 'dash';
+    DATA.staff_roles = await safeLoad('staff_roles');
+    if(DATA.staff_roles.length === 0){
+      renderPendingScreen("Aap ke owner ka account active nahi hai, ya aap ka role set nahi hua. Apne owner se rabta karein.");
+      return;
+    }
+    refreshStaffTabs();
+    APP_READY_UID = user.id;
+    renderMainLayout();
+    loadAll();
+    return;
+  }
+  LOGGED_IN_STAFF = null;
   let { data: profile } = await supa.from('profiles').select('*').eq('id', user.id).single();
   
   if(!profile){
@@ -492,6 +529,7 @@ async function checkUserPermissions(user){
   }
 
   CURRENT_USER_ROLE = profile.role || 'user';
+  APP_READY_UID = user.id;
   if(CURRENT_USER_ROLE === 'super_admin'){
     TABS = ADMIN_TABS;
     curTab = 'admin_dash';
@@ -518,36 +556,22 @@ function renderPendingScreen(msg){
 }
 
 async function handleLogin(){
-  let email = document.getElementById('loginEmail').value.trim();
+  let typed = document.getElementById('loginEmail').value.trim();
   let password = document.getElementById('loginPassword').value.trim();
-  if(!email || !password) return alert('Email aur password dono likhein!');
-  
+  if(!typed || !password) return alert('Email/Username aur password dono likhein!');
+
   let btn = document.getElementById('loginBtn');
   btn.innerText = 'Logging in...';
   btn.disabled = true;
 
   try {
-    // 1. Pehle 'staff' table mein check karein (taake 400 bad request error console mein na aaye)
-    let { data: staffList, error: staffErr } = await supa.from('staff').select('*').eq('email', email).eq('password', password);
-    if(staffList && staffList.length > 0){
-      LOGGED_IN_STAFF = staffList[0];
-      CURRENT_USER_ROLE = (LOGGED_IN_STAFF.role || 'user').toLowerCase();
-      curTab = 'dash';
-      DATA.staff_roles = await safeLoad('staff_roles');
-      refreshStaffTabs();
-      renderMainLayout();
-      loadAll();
-      return;
-    }
-
-    // 2. Agar staff nahi hai, toh Supabase Auth (Admin / Owner) login try karein
+    // Owner email se login karta hai, staff apne username se (username ke aage project domain khud lag jata hai)
+    let email = typed.includes('@') ? typed : (typed.toLowerCase() + '@' + STAFF_DOMAIN);
     let { data, error } = await supa.auth.signInWithPassword({ email, password });
     if(!error && data.user){
-      let uid = data.user.id;
-      await supa.from('audit_logs').insert([{ user_id: uid, action: 'LOGIN_SUCCESS', entity: 'User', user_email: email, ip: '10.31.' + Math.floor(Math.random()*255) }]);
+      await supa.from('audit_logs').insert([{ user_id: data.user.id, action: 'LOGIN_SUCCESS', entity: 'User', user_email: typed, ip: '10.31.' + Math.floor(Math.random()*255) }]);
       return;
     }
-
     alert('Login Failed: Invalid login credentials');
     btn.innerText = 'Login to System';
     btn.disabled = false;
@@ -560,13 +584,15 @@ async function handleLogin(){
 
 async function handleLogout(){
   if(!confirm('Kya aap system se logout karna chahte hain?')) return;
-  if(LOGGED_IN_STAFF){
-    LOGGED_IN_STAFF = null;
-    CURRENT_USER_ROLE = 'user';
-    renderLoginModal();
-    return;
-  }
+  LOGGED_IN_STAFF = null;
+  CURRENT_USER_ROLE = 'user';
+  AUTH_UID = null;
+  APP_READY_UID = null;
+  Object.keys(DATA).forEach(k => { DATA[k] = []; });
+  SALE_ITEMS = []; PURCHASE_ITEMS = []; EDIT_BILL_ID = null; EDIT_STAFF_ID = null;
+  TABS = USER_TABS; curTab = 'dash';
   await supa.auth.signOut();
+  renderWelcomeScreen();
 }
 
 function renderMainLayout(){
@@ -963,7 +989,7 @@ function renderView(){
       let badge = r
         ? '<span class="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">'+esc(r.name)+'</span>'
         : '<span class="px-2.5 py-1 rounded text-xs font-bold bg-red-100 text-red-700">'+esc(st.role||'-')+' (role nahi mila)</span>';
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+esc(st.name)+'<div class="text-xs text-slate-400">Login: '+esc(st.email)+'</div></td><td class="p-3">'+badge+'</td><td class="p-3 font-mono text-xs text-slate-600">'+esc(st.password)+'</td><td class="p-3 flex gap-1"><button onclick="editStaff(\''+st.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delStaff(\''+st.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+esc(st.name)+'<div class="text-xs text-slate-400">Login: '+esc(st.email)+'</div></td><td class="p-3">'+badge+'</td><td class="p-3 text-xs">'+(st.auth_user_id ? '<span class="text-green-700 font-semibold">✔ Login active</span>' : '<span class="text-amber-600 font-semibold">⚠ Login nahi bana: Edit kar ke password daalein</span>')+'</td><td class="p-3 flex gap-1"><button onclick="editStaff(\''+st.id+'\')" class="px-2.5 py-1 bg-blue-600 text-white rounded text-xs">✏️ Edit</button><button onclick="delStaff(\''+st.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X Delete</button></td></tr>';
     }).join('') || '<tr><td colspan=4 class="p-8 text-center text-slate-400">Abhi koi staff add nahi hua</td></tr>';
 
     let permBoxes = PERM_TABS.map(p =>
@@ -981,15 +1007,15 @@ function renderView(){
     '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">'+(EDIT_STAFF_ID ? 'Edit Staff Member' : 'Add New Staff')+'</h3>'+
       '<div class="grid md:grid-cols-4 gap-3 mb-3">'+
         '<input id="stName" class="input" placeholder="Staff Name *" value="'+esc(STAFF_FORM.name)+'" oninput="STAFF_FORM.name=this.value">'+
-        '<input id="stEmail" type="text" class="input" placeholder="Login Email / Username *" value="'+esc(STAFF_FORM.email)+'" oninput="STAFF_FORM.email=this.value">'+
-        '<input id="stPass" type="text" class="input" placeholder="Password *" value="'+esc(STAFF_FORM.pass)+'" oninput="STAFF_FORM.pass=this.value">'+
+        '<input id="stEmail" type="text" class="input" placeholder="Login Username * (a-z, 0-9, . _ -)" value="'+esc(STAFF_FORM.email)+'" oninput="STAFF_FORM.email=this.value">'+
+        '<input id="stPass" type="text" class="input" placeholder="'+(EDIT_STAFF_ID ? 'New Password (khali = purana rahega)' : 'Password * (kam az kam 6 characters)')+'" value="'+esc(STAFF_FORM.pass)+'" oninput="STAFF_FORM.pass=this.value">'+
         '<select id="stRole" class="input" onchange="STAFF_FORM.role_id=this.value">'+roleOpts+'</select>'+
       '</div>'+
-      '<div class="text-[11px] text-slate-500 mb-3">Staff sirf wohi tabs dekh sakega jo is role mein select hain. Role neeche "Roles & Permissions" mein banta aur edit hota hai.</div>'+
+      '<div class="text-[11px] text-slate-500 mb-3">Staff apne Username aur Password se login karega aur sirf wohi tabs dekh sakega jo is role mein select hain. Password yahan dobara nahi dikhta, bhool jaye to Edit kar ke naya daal dein. Role neeche "Roles & Permissions" mein banta aur edit hota hai.</div>'+
       '<div class="flex gap-2 mt-2"><button onclick="saveStaffMember()" class="btn-green flex-1">'+(EDIT_STAFF_ID ? 'Update Staff' : 'Save Staff Member')+'</button>'+(EDIT_STAFF_ID ? '<button onclick="cancelStaff()" class="border px-5 rounded-xl">Cancel</button>' : '')+'</div>'+
     '</div>'+
     '<div class="card p-5 mb-6"><input id="staffSearchInput" class="input" placeholder="🔍 Search Staff by Name, Email, or Role..." value="'+esc(STAFF_SEARCH)+'" oninput="STAFF_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto mb-8"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Staff Name & Login</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Password</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>'+
+    '<div class="card p-0 overflow-auto mb-8"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Staff Name & Login</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Login Status</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>'+
 
     '<div class="card p-5 mb-6"><h3 class="font-bold mb-1">Roles & Permissions — '+(EDIT_ROLE_ID ? 'Edit Role' : 'New Role')+'</h3>'+
       '<div class="text-[11px] text-slate-500 mb-3">Role ka naam likhein aur jo tabs is role ko dikhane hain unhein tick karein. Staff Management sirf owner ko milta hai.</div>'+
@@ -1339,30 +1365,20 @@ function renderView(){
 
 // ==================== STAFF MANAGEMENT FUNCTIONS ====================
 async function saveStaffMember(){
+  if(STAFF_BUSY) return;
   let name = STAFF_FORM.name.trim();
-  let email = STAFF_FORM.email.trim();
+  let username = STAFF_FORM.email.trim().toLowerCase();
   let password = STAFF_FORM.pass.trim();
-  if(!name || !email || !password) return alert('Name, Email/Username aur Password zaroori hain!');
-  if(password.length < 4) return alert('Password kam az kam 4 characters ka rakhein!');
-  let role = DATA.staff_roles.find(r => String(r.id) === String(STAFF_FORM.role_id));
-  if(!role) return alert('Pehle staff ka Role select karein!');
-
-  // Login email se hota hai, is liye email poori system mein unique honi chahiye
-  let safeEmail = email.replace(/[\\%_]/g, m => '\\' + m);
-  let { data: dup } = await supa.from('staff').select('id').ilike('email', safeEmail);
-  if(dup && dup.some(d => String(d.id) !== String(EDIT_STAFF_ID))) return alert('Ye Email/Username pehle se kisi staff ke liye maujood hai. Koi aur likhein.');
-
-  let uid = await getUserId();
-  let payload = { user_id: uid, name: name, email: email, password: password, role: role.name, role_id: role.id };
-
-  if(EDIT_STAFF_ID){
-    let { error } = await supa.from('staff').update(payload).eq('id', EDIT_STAFF_ID);
-    if(error){ alert(error.message); return; }
-    cancelStaff(); await loadAll(); return;
-  }
-  let { error } = await supa.from('staff').insert([payload]);
-  if(error){ alert(error.message); return; }
-  cancelStaff(); await loadAll();
+  if(!name || !username) return alert('Name aur Login Username zaroori hain!');
+  if(!EDIT_STAFF_ID && password.length < 6) return alert('Password kam az kam 6 characters ka rakhein!');
+  if(password && password.length < 6) return alert('Password kam az kam 6 characters ka rakhein!');
+  if(!STAFF_FORM.role_id) return alert('Pehle staff ka Role select karein!');
+  STAFF_BUSY = true;
+  let res = await callStaffAdmin({ action: 'save', id: EDIT_STAFF_ID, name: name, username: username, password: password, role_id: STAFF_FORM.role_id });
+  STAFF_BUSY = false;
+  if(!res.ok) return alert(res.error || 'Staff save nahi hua.');
+  cancelStaff();
+  await loadAll();
 }
 
 function editStaff(id){
@@ -1370,7 +1386,7 @@ function editStaff(id){
   if(!st) return;
   let r = findRoleForStaff(st);
   EDIT_STAFF_ID = id;
-  STAFF_FORM = { name: st.name || '', email: st.email || '', pass: st.password || '', role_id: r ? r.id : '' };
+  STAFF_FORM = { name: st.name || '', email: st.email || '', pass: '', role_id: r ? r.id : '' };
   renderView();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1382,9 +1398,9 @@ function cancelStaff(){
 }
 
 async function delStaff(id){
-  if(!confirm('Kya aap is staff member ko delete karna chahte hain?')) return;
-  let { error } = await supa.from('staff').delete().eq('id', id);
-  if(error){ alert('Error: ' + error.message); return; }
+  if(!confirm('Kya aap is staff member ko delete karna chahte hain? Us ka login bhi khatam ho jayega.')) return;
+  let res = await callStaffAdmin({ action: 'delete', id: id });
+  if(!res.ok){ alert('Error: ' + (res.error || 'delete nahi hua')); return; }
   if(String(EDIT_STAFF_ID) === String(id)) cancelStaff();
   loadAll();
 }
@@ -1408,7 +1424,6 @@ async function saveRole(){
   if(EDIT_ROLE_ID){
     let { error } = await supa.from('staff_roles').update(payload).eq('id', EDIT_ROLE_ID);
     if(error){ alert(error.message); return; }
-    await supa.from('staff').update({ role: name }).eq('role_id', EDIT_ROLE_ID);
   } else {
     let { error } = await supa.from('staff_roles').insert([payload]);
     if(error){ alert(error.message); return; }
