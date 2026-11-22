@@ -4,6 +4,9 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 body{font-family:system-ui;background:#f6f8fb}
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
@@ -32,7 +35,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[], staff_roles:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null, EDIT_STAFF_ID=null;
-let HIST_FILTERS = { inv: '', date: '', cust: '', type: '' };
+let HIST_FILTERS = { inv: '', date: '', cust: '', type: '', booker: '' };
 let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
 let SELECTED_SALESMAN_ID = '';
 let CURRENT_USER_ROLE = 'user';
@@ -223,6 +226,70 @@ function buildReportFilters(){
 }
 
 function buildItemQtyTable(list){
+  let d = getItemReportData(list);
+  let rows = d.rows.map(r => '<tr class="border-b"><td class="p-3 font-semibold">' + esc(r.name) + '</td><td class="p-3 text-center text-xs text-slate-500">' + (r.per > 1 ? r.per : '-') + '</td><td class="p-3 text-center font-bold">' + r.ctn + '</td><td class="p-3 text-center font-bold">' + r.rem + '</td><td class="p-3 text-center">' + r.pcs + '</td><td class="p-3 text-right">Rs ' + Math.round(r.amt).toLocaleString() + '</td></tr>').join('') || '<tr><td colspan=6 class="p-6 text-center text-slate-400">Koi item nahi mila</td></tr>';
+  return '<div class="mt-4"><div class="flex justify-between items-center mb-2"><div class="text-xs text-slate-500">Report: <b>' + d.label + '</b></div><button onclick="pdfItemReport()" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div>' +
+    '<div id="repItemTable" class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Ctn Size</th><th class="p-3">Ctn</th><th class="p-3">Pcs</th><th class="p-3">Total Pcs</th><th class="p-3 text-right">Amount</th></tr></thead><tbody>' + rows +
+    '<tr class="bg-slate-100 font-bold"><td class="p-3">TOTAL</td><td class="p-3"></td><td class="p-3 text-center">' + d.totalCtn + '</td><td class="p-3"></td><td class="p-3 text-center">' + d.totalPcs + '</td><td class="p-3 text-right">Rs ' + Math.round(d.totalAmt).toLocaleString() + '</td></tr></tbody></table></div></div>';
+}
+
+function buildInvoiceItemReport(){
+  let custOpts = '<option value="">All Customers</option>' + DATA.customers.map(c => '<option value="' + c.id + '"' + (String(REP.cust) === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
+  let list = repInvoiceList();
+  let rows = list.map(b => {
+    let c = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+    return '<label class="flex items-center gap-2 p-2 border-b text-xs cursor-pointer hover:bg-slate-50"><input type="checkbox" ' + (REP.sel.includes(String(b.id)) ? 'checked ' : '') + 'onchange="toggleRepInv(\'' + b.id + '\', this.checked)"><span class="font-mono">' + esc(b.invoice_no) + '</span><span class="text-slate-500">' + (b.created_at || '').slice(0, 10) + '</span><span class="font-semibold flex-1">' + esc(c ? c.name : '-') + '</span><b>Rs ' + Number(b.total_amount || 0).toLocaleString() + '</b></label>';
+  }).join('') || '<div class="p-4 text-center text-slate-400 text-sm">Koi invoice nahi mila</div>';
+  return '<div class="card p-5"><h3 class="font-bold text-lg mb-1">Invoice-wise Item Report (Ctn / Pcs)</h3>' +
+    '<div class="text-[11px] text-slate-500 mb-3">Invoices select karein, phir "Show Item-wise Qty" dabayein. Koi select na ho to filter ki sab invoices count hongi.</div>' +
+    '<div class="grid md:grid-cols-3 gap-3 mb-3"><select class="input" onchange="setRep(\'cust\', this.value)">' + custOpts + '</select>' +
+    '<div class="flex gap-2 md:col-span-2"><button onclick="repSelectAll(true)" class="border px-4 rounded-xl text-sm">Select All</button><button onclick="repSelectAll(false)" class="border px-4 rounded-xl text-sm">Clear</button><button onclick="runItemReport()" class="btn-green flex-1">Show Item-wise Qty</button><button onclick="pdfItemReport()" class="bg-slate-900 text-white px-4 rounded-xl text-sm font-bold">📄 PDF</button></div></div>' +
+    '<div class="border rounded-xl max-h-64 overflow-auto bg-white">' + rows + '</div>' +
+    (REP.showItems ? buildItemQtyTable(list) : '') + '</div>';
+}
+
+function buildCustomerSaleReport(){
+  let d = getCustomerSaleData();
+  let rows = d.rows.map(r => '<tr class="border-b"><td class="p-3 font-semibold">' + esc(r.name) + '<div class="text-[10px] text-slate-400">' + esc(r.area) + '</div></td><td class="p-3 text-center">' + r.count + '</td><td class="p-3 text-center">' + r.pcs + '</td><td class="p-3 text-right font-bold">Rs ' + Math.round(r.amt).toLocaleString() + '</td></tr>').join('') || '<tr><td colspan=4 class="p-6 text-center text-slate-400">Is period mein koi sale nahi</td></tr>';
+  return '<div class="card p-5"><div class="flex justify-between items-center mb-3"><h3 class="font-bold text-lg">Customer-wise Sale Report</h3><button onclick="pdfCustomerSale()" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div><div class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Invoices</th><th class="p-3">Total Pcs</th><th class="p-3 text-right">Total Sale</th></tr></thead><tbody>' + rows +
+    '<tr class="bg-slate-100 font-bold"><td class="p-3">TOTAL</td><td class="p-3 text-center">' + d.tInv + '</td><td class="p-3 text-center">' + d.tPcs + '</td><td class="p-3 text-right">Rs ' + Math.round(d.tAmt).toLocaleString() + '</td></tr></tbody></table></div></div>';
+}
+
+function printItemReport(){
+  let el = document.getElementById('repItemTable');
+  if(!el) return alert('Pehle "Show Item-wise Qty" dabayein.');
+  let w = window.open('', '_blank', 'width=800,height=600');
+  w.document.write('<html><head><title>Item-wise Qty Report</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px;text-align:left}th{background:#f2f2f2}</style></head><body><h3>QNH ENTERPRISES - Item-wise Qty Report</h3>' + el.innerHTML + '<script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.close();
+}
+
+// ==================== PDF (naye tab mein) ====================
+function periodText(){ return (REP.from || REP.to) ? '   |   Period: ' + (REP.from || 'start') + ' se ' + (REP.to || 'aaj tak') : ''; }
+
+function openPdf(title, subtitle, head, body, foot, rightCols){
+  if(!window.jspdf || !window.jspdf.jsPDF) return alert('PDF library load nahi hui. Internet check kar ke page refresh (Ctrl+F5) karein.');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  doc.setFontSize(15); doc.text('QNH ENTERPRISES', 40, 42);
+  doc.setFontSize(12); doc.text(String(title), 40, 62);
+  doc.setFontSize(8.5); doc.setTextColor(100);
+  doc.text(String(subtitle || '') + '   |   Generated: ' + new Date().toLocaleString(), 40, 78, { maxWidth: 515 });
+  doc.setTextColor(0);
+  let colStyles = {};
+  (rightCols || []).forEach(i => { colStyles[i] = { halign: 'right' }; });
+  doc.autoTable({
+    startY: 92, head: [head], body: body, foot: foot ? [foot] : undefined, showFoot: 'lastPage',
+    styles: { fontSize: 9, cellPadding: 4 }, headStyles: { fillColor: [15, 23, 42] },
+    footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: 'bold' }, columnStyles: colStyles,
+    margin: { left: 40, right: 40 }
+  });
+  try { doc.setProperties({ title: String(title) }); } catch(_) {}
+  let url = doc.output('bloburl');
+  let w = window.open(url, '_blank');
+  if(!w){ doc.save(String(title).replace(/[^a-z0-9]+/gi, '_') + '.pdf'); alert('Browser ne naya tab block kiya, is liye PDF download ho gayi. Popup allow karein to PDF naye tab mein khulegi.'); }
+}
+
+function getItemReportData(list){
   let selIds = REP.sel.filter(id => list.some(b => String(b.id) === id));
   let used = selIds.length ? list.filter(b => selIds.includes(String(b.id))) : list;
   let agg = {};
@@ -239,30 +306,24 @@ function buildItemQtyTable(list){
     let ctn = per > 1 ? Math.floor(r.pcs / per) : 0;
     let rem = per > 1 ? r.pcs - ctn * per : r.pcs;
     totalPcs += r.pcs; totalAmt += r.amt; totalCtn += ctn;
-    return '<tr class="border-b"><td class="p-3 font-semibold">' + esc(r.name) + '</td><td class="p-3 text-center text-xs text-slate-500">' + (per > 1 ? per : '-') + '</td><td class="p-3 text-center font-bold">' + ctn + '</td><td class="p-3 text-center font-bold">' + rem + '</td><td class="p-3 text-center">' + r.pcs + '</td><td class="p-3 text-right">Rs ' + Math.round(r.amt).toLocaleString() + '</td></tr>';
-  }).join('') || '<tr><td colspan=6 class="p-6 text-center text-slate-400">Koi item nahi mila</td></tr>';
+    return { name: r.name, per: per, ctn: ctn, rem: rem, pcs: r.pcs, amt: r.amt };
+  });
   let label = selIds.length ? (selIds.length + ' selected invoice(s)') : ('Sab ' + list.length + ' invoice(s) (koi select nahi kiya)');
-  return '<div class="mt-4"><div class="flex justify-between items-center mb-2"><div class="text-xs text-slate-500">Report: <b>' + label + '</b></div><button onclick="printItemReport()" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold">🖨️ Print</button></div>' +
-    '<div id="repItemTable" class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Ctn Size</th><th class="p-3">Ctn</th><th class="p-3">Pcs</th><th class="p-3">Total Pcs</th><th class="p-3 text-right">Amount</th></tr></thead><tbody>' + rows +
-    '<tr class="bg-slate-100 font-bold"><td class="p-3">TOTAL</td><td class="p-3"></td><td class="p-3 text-center">' + totalCtn + '</td><td class="p-3"></td><td class="p-3 text-center">' + totalPcs + '</td><td class="p-3 text-right">Rs ' + Math.round(totalAmt).toLocaleString() + '</td></tr></tbody></table></div></div>';
+  let invNos = (selIds.length && selIds.length <= 15) ? used.map(b => b.invoice_no).join(', ') : '';
+  return { rows: rows, totalPcs: totalPcs, totalAmt: totalAmt, totalCtn: totalCtn, label: label, invNos: invNos };
+}
+function pdfItemReport(){
+  let d = getItemReportData(repInvoiceList());
+  if(!d.rows.length) return alert('Is selection mein koi item nahi mila.');
+  let cust = REP.cust ? DATA.customers.find(c => String(c.id) === String(REP.cust)) : null;
+  let sub = d.label + (cust ? '   |   Customer: ' + cust.name : '') + periodText() + (d.invNos ? '   |   Invoices: ' + d.invNos : '');
+  openPdf('Invoice-wise Item Report (Ctn / Pcs)', sub,
+    ['Item', 'Ctn Size', 'Ctn', 'Pcs', 'Total Pcs', 'Amount (Rs)'],
+    d.rows.map(r => [r.name, r.per > 1 ? r.per : '-', r.ctn, r.rem, r.pcs, Math.round(r.amt).toLocaleString()]),
+    ['TOTAL', '', d.totalCtn, '', d.totalPcs, Math.round(d.totalAmt).toLocaleString()], [1, 2, 3, 4, 5]);
 }
 
-function buildInvoiceItemReport(){
-  let custOpts = '<option value="">All Customers</option>' + DATA.customers.map(c => '<option value="' + c.id + '"' + (String(REP.cust) === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
-  let list = repInvoiceList();
-  let rows = list.map(b => {
-    let c = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-    return '<label class="flex items-center gap-2 p-2 border-b text-xs cursor-pointer hover:bg-slate-50"><input type="checkbox" ' + (REP.sel.includes(String(b.id)) ? 'checked ' : '') + 'onchange="toggleRepInv(\'' + b.id + '\', this.checked)"><span class="font-mono">' + esc(b.invoice_no) + '</span><span class="text-slate-500">' + (b.created_at || '').slice(0, 10) + '</span><span class="font-semibold flex-1">' + esc(c ? c.name : '-') + '</span><b>Rs ' + Number(b.total_amount || 0).toLocaleString() + '</b></label>';
-  }).join('') || '<div class="p-4 text-center text-slate-400 text-sm">Koi invoice nahi mila</div>';
-  return '<div class="card p-5"><h3 class="font-bold text-lg mb-1">Invoice-wise Item Report (Ctn / Pcs)</h3>' +
-    '<div class="text-[11px] text-slate-500 mb-3">Invoices select karein, phir "Show Item-wise Qty" dabayein. Koi select na ho to filter ki sab invoices count hongi.</div>' +
-    '<div class="grid md:grid-cols-3 gap-3 mb-3"><select class="input" onchange="setRep(\'cust\', this.value)">' + custOpts + '</select>' +
-    '<div class="flex gap-2 md:col-span-2"><button onclick="repSelectAll(true)" class="border px-4 rounded-xl text-sm">Select All</button><button onclick="repSelectAll(false)" class="border px-4 rounded-xl text-sm">Clear</button><button onclick="runItemReport()" class="btn-green flex-1">Show Item-wise Qty</button></div></div>' +
-    '<div class="border rounded-xl max-h-64 overflow-auto bg-white">' + rows + '</div>' +
-    (REP.showItems ? buildItemQtyTable(list) : '') + '</div>';
-}
-
-function buildCustomerSaleReport(){
+function getCustomerSaleData(){
   let map = {};
   repBills().forEach(b => {
     let k = String(b.customer_id || 'none');
@@ -275,18 +336,279 @@ function buildCustomerSaleReport(){
   let rows = Object.values(map).sort((a, b) => b.amt - a.amt).map(r => {
     let c = DATA.customers.find(x => String(x.id) === String(r.id));
     tInv += r.count; tAmt += r.amt; tPcs += r.pcs;
-    return '<tr class="border-b"><td class="p-3 font-semibold">' + esc(c ? c.name : 'Walk-in / Unknown') + '<div class="text-[10px] text-slate-400">' + esc(c ? (c.area || '') : '') + '</div></td><td class="p-3 text-center">' + r.count + '</td><td class="p-3 text-center">' + r.pcs + '</td><td class="p-3 text-right font-bold">Rs ' + Math.round(r.amt).toLocaleString() + '</td></tr>';
-  }).join('') || '<tr><td colspan=4 class="p-6 text-center text-slate-400">Is period mein koi sale nahi</td></tr>';
-  return '<div class="card p-5"><h3 class="font-bold text-lg mb-3">Customer-wise Sale Report</h3><div class="overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Invoices</th><th class="p-3">Total Pcs</th><th class="p-3 text-right">Total Sale</th></tr></thead><tbody>' + rows +
-    '<tr class="bg-slate-100 font-bold"><td class="p-3">TOTAL</td><td class="p-3 text-center">' + tInv + '</td><td class="p-3 text-center">' + tPcs + '</td><td class="p-3 text-right">Rs ' + Math.round(tAmt).toLocaleString() + '</td></tr></tbody></table></div></div>';
+    return { name: c ? c.name : 'Walk-in / Unknown', area: c ? (c.area || '') : '', count: r.count, pcs: r.pcs, amt: r.amt };
+  });
+  return { rows: rows, tInv: tInv, tAmt: tAmt, tPcs: tPcs };
+}
+function pdfCustomerSale(){
+  let d = getCustomerSaleData();
+  if(!d.rows.length) return alert('Is period mein koi sale nahi.');
+  openPdf('Customer-wise Sale Report', 'Total ' + d.rows.length + ' customer(s)' + periodText(),
+    ['Customer', 'Area', 'Invoices', 'Total Pcs', 'Total Sale (Rs)'],
+    d.rows.map(r => [r.name, r.area, r.count, r.pcs, Math.round(r.amt).toLocaleString()]),
+    ['TOTAL', '', d.tInv, d.tPcs, Math.round(d.tAmt).toLocaleString()], [2, 3, 4]);
+}
+function pdfBankReport(){
+  let rows = DATA.banks.map(b => {
+    let t = DATA.cust_ledgers.filter(l => String(l.bank_id) === String(b.id)).reduce((s, l) => s + Number(l.credit || 0), 0);
+    return [b.name, b.account_no || '-', Math.round(t).toLocaleString(), t];
+  });
+  if(!rows.length) return alert('Koi bank account add nahi hai.');
+  let total = rows.reduce((s, r) => s + r[3], 0);
+  openPdf('Bank & Wallet Wise Collections', 'Total ' + rows.length + ' account(s)', ['Bank / Wallet', 'Account No', 'Collection (Rs)'],
+    rows.map(r => [r[0], r[1], r[2]]), ['TOTAL', '', Math.round(total).toLocaleString()], [2]);
+}
+function pdfSummaryReport(){
+  let totalSale = DATA.bills.reduce((s, b) => s + Number(b.total_amount || 0), 0);
+  let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
+  let totalVendorBal = DATA.companies.reduce((sum, c) => sum + getBal(c.id), 0);
+  openPdf('System Summary Report', 'Poore system ka khulasa', ['Detail', 'Value'], [
+    ['Total Sales Generated', 'Rs ' + Math.round(totalSale).toLocaleString()],
+    ['Total Customer Receivables', 'Rs ' + Math.round(totalCustBal).toLocaleString()],
+    ['Total Vendor Balances', 'Rs ' + Math.round(totalVendorBal).toLocaleString()],
+    ['Total Customers Registered', DATA.customers.length],
+    ['Total Vendors / Suppliers', DATA.companies.length],
+    ['Total Inventory Items', DATA.items.length],
+    ['Total Staff', DATA.staff.length],
+    ['Total Invoices Issued', DATA.bills.length]
+  ], null, [1]);
 }
 
-function printItemReport(){
-  let el = document.getElementById('repItemTable');
-  if(!el) return alert('Pehle "Show Item-wise Qty" dabayein.');
-  let w = window.open('', '_blank', 'width=800,height=600');
-  w.document.write('<html><head><title>Item-wise Qty Report</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px;text-align:left}th{background:#f2f2f2}</style></head><body><h3>QNH ENTERPRISES - Item-wise Qty Report</h3>' + el.innerHTML + '<script>window.onload=function(){window.print();}<\/script></body></html>');
-  w.document.close();
+// ==================== PURCHASE: CTN / PCS ====================
+function getPurchaseItemSel(){
+  let id = document.getElementById('purchaseItem') ? document.getElementById('purchaseItem').value : '';
+  return id ? DATA.items.find(x => String(x.id) === String(id)) : null;
+}
+function showPurchaseItemInfo(){
+  let el = document.getElementById('purchaseItemInfo');
+  if(!el) return;
+  let it = getPurchaseItemSel();
+  if(!it){ el.innerHTML = ''; return; }
+  let per = Number(it.ctn_pcs || 0);
+  el.innerHTML = '📦 Abhi Stock: <b>' + fmtCtnPcs(it.current_stock, per) + '</b>' + (per > 1 ? ' <span class="text-slate-400">(1 Ctn = ' + per + ' Pcs)</span>' : ' <span class="text-amber-600">(Ctn size set nahi)</span>');
+}
+function updatePurchaseQtyTotal(){
+  let it = getPurchaseItemSel();
+  let ctn = Number(document.getElementById('purchaseCtn') ? document.getElementById('purchaseCtn').value : 0) || 0;
+  let pcs = Number(document.getElementById('purchasePcs') ? document.getElementById('purchasePcs').value : 0) || 0;
+  let per = Number(it ? it.ctn_pcs : 0) || 0;
+  let el = document.getElementById('purchaseQtyTotal');
+  if(el) el.innerText = 'Total Qty: ' + (ctn * per + pcs) + ' Pcs' + (ctn > 0 && per <= 1 ? '  (⚠️ Is item ka Ctn size set nahi)' : '');
+}
+
+// ==================== EXCEL IMPORT ====================
+let IMPORT_BUSY = false;
+function normKey(k){ return String(k).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function pickVal(r, names){ for(let n of names){ if(r[n] !== undefined && String(r[n]).trim() !== '') return r[n]; } return ''; }
+function toNum(v){ let n = Number(String(v).replace(/,/g, '').trim()); return isNaN(n) ? 0 : n; }
+function isYes(v){ return ['yes', 'y', 'true', '1', 'registered', 'haan', 'han'].includes(String(v).trim().toLowerCase()); }
+
+function buildImportCard(kind, label){
+  return '<div class="card p-4 mb-6 flex flex-wrap items-center gap-3"><div class="font-bold text-sm">📥 Excel se ' + label + ' Upload</div>' +
+    '<button onclick="downloadTemplate(\'' + kind + '\')" class="border px-3 py-1.5 rounded-lg text-xs font-semibold">Sample Excel Download</button>' +
+    '<label class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer">Excel File Chunein<input type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="importExcel(\'' + kind + '\', this)"></label>' +
+    '<span class="text-[11px] text-slate-500">Pehli row mein column ke naam hon. Jo naam pehle se maujood hain wo skip honge.</span></div>';
+}
+function downloadTemplate(kind){
+  if(!window.XLSX) return alert('Excel library load nahi hui. Internet check kar ke page refresh karein.');
+  let samples = {
+    items: [['Item Name', 'Vendor', 'Purchase Cost', 'Sale Price', 'Stock (Pcs)', 'Ctn Size'], ['Biscuit 50g', 'ABC Traders', 8, 10, 240, 24]],
+    customers: [['Name', 'Phone', 'Area', 'Registered (Yes/No)', 'Bill Type (Simple/Tax)', 'Opening Balance'], ['Ali Store', '0300-1234567', 'Gulshan', 'No', 'Simple', 5000]],
+    vendors: [['Vendor Name', 'Phone', 'Address', 'Opening Balance'], ['ABC Traders', '0321-1234567', 'Rawalpindi', 0]]
+  };
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(samples[kind]), 'Data');
+  XLSX.writeFile(wb, kind + '_sample.xlsx');
+}
+async function insertChunks(table, rows, selectCols){
+  let out = [];
+  for(let i = 0; i < rows.length; i += 100){
+    let q = supa.from(table).insert(rows.slice(i, i + 100));
+    if(selectCols) q = q.select(selectCols);
+    let { data, error } = await q;
+    if(error) return { error: error, done: out };
+    if(data) out = out.concat(data);
+  }
+  return { error: null, done: out };
+}
+async function importExcel(kind, input){
+  let file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  if(IMPORT_BUSY) return;
+  if(!window.XLSX) return alert('Excel library load nahi hui. Internet check kar ke page refresh karein.');
+  IMPORT_BUSY = true;
+  try {
+    let wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    let raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    if(!raw.length) return alert('File khali hai ya pehli row mein column ke naam nahi hain.');
+    let rows = raw.map(r => { let o = {}; Object.keys(r).forEach(k => { o[normKey(k)] = r[k]; }); return o; });
+    let uid = await getUserId();
+    let bad = 0, dup = 0, list = [], seen = new Set();
+
+    if(kind === 'items'){
+      let existing = new Set(DATA.items.map(i => String(i.name || '').trim().toLowerCase()));
+      rows.forEach(r => {
+        let name = String(pickVal(r, ['itemname', 'name', 'item', 'product', 'productname'])).trim();
+        if(!name){ bad++; return; }
+        let key = name.toLowerCase();
+        if(existing.has(key) || seen.has(key)){ dup++; return; }
+        seen.add(key);
+        list.push({
+          name: name, vendor: String(pickVal(r, ['vendor', 'vendorname', 'company', 'companyname', 'supplier'])).trim(),
+          pur: toNum(pickVal(r, ['purchasecost', 'purchaseprice', 'cost', 'costprice'])),
+          sale: toNum(pickVal(r, ['saleprice', 'sellingprice', 'price', 'rate', 'salecost'])),
+          stock: toNum(pickVal(r, ['stockpcs', 'stock', 'openingstock', 'qty', 'quantity'])),
+          ctn: toNum(pickVal(r, ['ctnsize', 'pcsperctn', 'ctn', 'ctnpcs', 'carton', 'cartonsize']))
+        });
+      });
+      if(!list.length) return alert('Koi naya item nahi mila. (Pehle se maujood: ' + dup + ', naam khali: ' + bad + ')');
+      if(!confirm(list.length + ' naye items add honge.\nPehle se maujood (skip): ' + dup + '\nNaam khali (skip): ' + bad + '\n\nUpload karein?')) return;
+      let newVendors = [...new Set(list.map(x => x.vendor).filter(v => v && !DATA.companies.some(c => String(c.name || '').trim().toLowerCase() === v.toLowerCase())))];
+      if(newVendors.length){
+        let vr = await insertChunks('companies', newVendors.map(n => ({ user_id: uid, name: n, opening_balance: 0 })));
+        if(vr.error) return alert('Vendors add nahi ho sake: ' + vr.error.message);
+        DATA.companies = await safeLoad('companies');
+      }
+      let payload = list.map(x => {
+        let comp = x.vendor ? DATA.companies.find(c => String(c.name || '').trim().toLowerCase() === x.vendor.toLowerCase()) : null;
+        return { user_id: uid, name: x.name, company_id: comp ? comp.id : null, purchase_cost: x.pur, sale_price: x.sale, sale_cost: x.sale, current_stock: x.stock, ctn_pcs: x.ctn };
+      });
+      let r1 = await insertChunks('items', payload);
+      if(r1.error) return alert('Upload beech mein ruk gaya (' + r1.done.length + ' items add hue): ' + r1.error.message);
+      alert('✅ ' + payload.length + ' items add ho gaye!' + (newVendors.length ? '\n' + newVendors.length + ' naye vendors bhi ban gaye.' : ''));
+    }
+
+    else if(kind === 'customers'){
+      let keyOf = (n, p) => String(n || '').trim().toLowerCase() + '|' + String(p || '').replace(/\D/g, '');
+      let existing = new Set(DATA.customers.map(c => keyOf(c.name, c.phone)));
+      rows.forEach(r => {
+        let name = String(pickVal(r, ['name', 'customername', 'customer', 'party', 'partyname'])).trim();
+        if(!name){ bad++; return; }
+        let phone = String(pickVal(r, ['phone', 'mobile', 'phoneno', 'contact', 'cell'])).trim();
+        let key = keyOf(name, phone);
+        if(existing.has(key) || seen.has(key)){ dup++; return; }
+        seen.add(key);
+        let bt = String(pickVal(r, ['billtypesimpletax', 'billtype', 'bill'])).trim().toLowerCase();
+        list.push({
+          name: name, phone: phone, area: String(pickVal(r, ['area', 'city', 'location'])).trim(),
+          reg: isYes(pickVal(r, ['registeredyesno', 'registered', 'isregistered'])), tax: bt === 'tax',
+          open: toNum(pickVal(r, ['openingbalance', 'opening', 'balance', 'udhaar']))
+        });
+      });
+      if(!list.length) return alert('Koi naya customer nahi mila. (Pehle se maujood: ' + dup + ', naam khali: ' + bad + ')');
+      if(!confirm(list.length + ' naye customers add honge.\nPehle se maujood (skip): ' + dup + '\nNaam khali (skip): ' + bad + '\n\nUpload karein?')) return;
+      let payload = list.map(x => ({ user_id: uid, name: x.name, phone: x.phone, area: x.area, is_registered: x.reg, default_bill_type: x.tax ? 'tax' : 'simple', gst_rate: 18, add_tax_rate: 3, non_reg_tax_rate: 0.25 }));
+      let r1 = await insertChunks('customers', payload, 'id');
+      if(r1.error) return alert('Upload beech mein ruk gaya (' + r1.done.length + ' customers add hue): ' + r1.error.message);
+      let today = new Date().toISOString().split('T')[0];
+      let ledger = [];
+      r1.done.forEach((row, i) => {
+        let amt = list[i] ? list[i].open : 0;
+        if(row && amt) ledger.push({ user_id: uid, customer_id: row.id, date: today, type: 'opening', bill_no: 'OPENING', description: 'Opening Balance', debit: amt > 0 ? amt : 0, credit: amt < 0 ? -amt : 0 });
+      });
+      if(ledger.length){
+        let lr = await insertChunks('customer_ledger', ledger);
+        if(lr.error) alert('Customers add ho gaye lekin opening balance save nahi hue: ' + lr.error.message);
+      }
+      alert('✅ ' + payload.length + ' customers add ho gaye!' + (ledger.length ? '\n' + ledger.length + ' ka opening balance bhi lag gaya.' : ''));
+    }
+
+    else if(kind === 'vendors'){
+      let existing = new Set(DATA.companies.map(c => String(c.name || '').trim().toLowerCase()));
+      rows.forEach(r => {
+        let name = String(pickVal(r, ['vendorname', 'name', 'vendor', 'company', 'companyname', 'supplier'])).trim();
+        if(!name){ bad++; return; }
+        let key = name.toLowerCase();
+        if(existing.has(key) || seen.has(key)){ dup++; return; }
+        seen.add(key);
+        list.push({ user_id: uid, name: name, phone: String(pickVal(r, ['phone', 'mobile', 'phoneno', 'contact'])).trim(), address: String(pickVal(r, ['address', 'city'])).trim(), opening_balance: toNum(pickVal(r, ['openingbalance', 'opening', 'balance'])) });
+      });
+      if(!list.length) return alert('Koi naya vendor nahi mila. (Pehle se maujood: ' + dup + ', naam khali: ' + bad + ')');
+      if(!confirm(list.length + ' naye vendors add honge.\nPehle se maujood (skip): ' + dup + '\nNaam khali (skip): ' + bad + '\n\nUpload karein?')) return;
+      let r1 = await insertChunks('companies', list);
+      if(r1.error) return alert('Upload beech mein ruk gaya (' + r1.done.length + ' vendors add hue): ' + r1.error.message);
+      alert('✅ ' + list.length + ' vendors add ho gaye!');
+    }
+    await loadAll();
+  } catch(e) {
+    alert('File parhne mein masla aaya: ' + e.message);
+  } finally {
+    IMPORT_BUSY = false;
+  }
+}
+
+// ==================== REAL-TIME UPDATE ====================
+let RT_CHANNEL = null, RT_TIMER = null, RT_POLL = null;
+const RT_DIRTY = new Set();
+const RT_MAP = { bills:'bills', customers:'customers', items:'items', companies:'companies', vendor_ledgers:'ledgers', customer_ledger:'cust_ledgers', banks:'banks', purchases:'purchases', purchase_items:'purchases', staff:'staff', staff_roles:'staff_roles', profiles:'all_users', audit_logs:'audit_logs' };
+
+function stopRealtime(){
+  if(RT_CHANNEL){ try { supa.removeChannel(RT_CHANNEL); } catch(_) {} RT_CHANNEL = null; }
+  if(RT_POLL){ clearInterval(RT_POLL); RT_POLL = null; }
+  if(RT_TIMER){ clearTimeout(RT_TIMER); RT_TIMER = null; }
+  RT_DIRTY.clear();
+}
+function onLiveChange(table){
+  RT_DIRTY.add(table);
+  if(RT_TIMER) clearTimeout(RT_TIMER);
+  RT_TIMER = setTimeout(liveRefresh, 1200);
+}
+function ensureRealtime(){
+  if(RT_CHANNEL || !APP_READY_UID) return;
+  let tables = CURRENT_USER_ROLE === 'super_admin' ? ['profiles', 'staff', 'audit_logs'] : ['bills', 'customers', 'items', 'companies', 'customer_ledger', 'vendor_ledgers', 'banks', 'purchases', 'purchase_items', 'staff', 'staff_roles'];
+  let ch = supa.channel('qnh-live-' + APP_READY_UID);
+  tables.forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => onLiveChange(t)));
+  ch.subscribe(status => {
+    if(status === 'SUBSCRIBED'){
+      if(RT_POLL){ clearInterval(RT_POLL); RT_POLL = null; }
+    } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'){
+      // Realtime na chale to har 60 second baad data khud refresh ho (sirf tab visible ho)
+      if(!RT_POLL) RT_POLL = setInterval(() => {
+        if(document.visibilityState === 'visible'){ tables.forEach(t => RT_DIRTY.add(t)); liveRefresh(); }
+      }, 60000);
+    }
+  });
+  RT_CHANNEL = ch;
+}
+function canAutoRerender(){
+  if(curTab === 'sale' || curTab === 'purchase') return false;
+  let v = document.getElementById('viewArea');
+  if(!v) return false;
+  let ae = document.activeElement;
+  if(ae && v.contains(ae) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName) && !/hist|search|rep/i.test(ae.id || '')) return false;
+  if(v.querySelector('.inv-checkbox:checked')) return false;
+  let dirty = [...v.querySelectorAll('input,select,textarea')].some(el => {
+    if(/hist|search|rep/i.test(el.id || '')) return false;
+    let t = (el.type || '').toLowerCase();
+    if(['date', 'checkbox', 'button', 'file'].includes(t)) return false;
+    if(el.tagName === 'SELECT'){
+      let def = [...el.options].findIndex(o => o.defaultSelected);
+      return el.selectedIndex !== (def < 0 ? 0 : def);
+    }
+    return el.value !== el.defaultValue;
+  });
+  return !dirty;
+}
+async function liveRefresh(){
+  RT_TIMER = null;
+  if(!APP_READY_UID || RT_DIRTY.size === 0) return;
+  let tables = [...RT_DIRTY];
+  RT_DIRTY.clear();
+  let done = {};
+  for(let t of tables){
+    let key = RT_MAP[t];
+    if(!key || done[key]) continue;
+    done[key] = true;
+    let name = t === 'purchase_items' ? 'purchases' : t;
+    if(name === 'profiles' && CURRENT_USER_ROLE !== 'super_admin') continue;
+    DATA[key] = await safeLoad(name);
+  }
+  if(LOGGED_IN_STAFF) refreshStaffTabs();
+  if(!canAutoRerender()) return;
+  let origFocus = HTMLElement.prototype.focus;
+  HTMLElement.prototype.focus = function(){};
+  try { renderView(); } finally { setTimeout(() => { HTMLElement.prototype.focus = origFocus; }, 250); }
 }
 
 // ==================== AUTO CAPITAL (pehla letter) ====================
@@ -378,6 +700,7 @@ async function initAuth(){
     if(event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') return;
     if(!session){
       APP_READY_UID = null;
+      stopRealtime();
       renderWelcomeScreen();
       return;
     }
@@ -588,6 +911,7 @@ async function handleLogout(){
   CURRENT_USER_ROLE = 'user';
   AUTH_UID = null;
   APP_READY_UID = null;
+  stopRealtime();
   Object.keys(DATA).forEach(k => { DATA[k] = []; });
   SALE_ITEMS = []; PURCHASE_ITEMS = []; EDIT_BILL_ID = null; EDIT_STAFF_ID = null;
   TABS = USER_TABS; curTab = 'dash';
@@ -704,6 +1028,7 @@ async function loadAll(){
   DATA.audit_logs = await safeLoad('audit_logs');
   if(LOGGED_IN_STAFF) refreshStaffTabs();
   renderView();
+  ensureRealtime();
 }
 
 function getBal(cid){
@@ -742,7 +1067,7 @@ function getLastPurchaseRate(itemId){
   for(let p of DATA.purchases){
     if(p.purchase_items){
       let pi = p.purchase_items.find(x => String(x.item_id) === String(itemId));
-      if(pi){ lastCost = Number(pi.rate); break; }
+      if(pi){ lastCost = Number(pi.price != null ? pi.price : pi.rate); break; }
     }
   }
   return lastCost;
@@ -1045,8 +1370,8 @@ function renderView(){
         '<div class="card p-5 border-l-4 border-purple-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Vendor Balances</div><div class="text-2xl font-bold text-purple-700 mt-1">Rs '+totalVendorBal.toLocaleString()+'</div></div>'+
       '</div>'+
       buildReportFilters()+buildInvoiceItemReport()+buildCustomerSaleReport()+
-       '<div class="card p-5"><h3 class="font-bold text-lg mb-4">Bank & Wallet Wise Collections Report</h3><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
-      '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="window.print()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">🖨️ Print Report</button></div>'+
+       '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">Bank & Wallet Wise Collections Report</h3><button onclick="pdfBankReport()" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
+      '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="pdfSummaryReport()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div>'+
         '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Staff: <b>'+DATA.staff.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
       '</div>'+
     '</div>';
@@ -1070,7 +1395,7 @@ function renderView(){
       return '<option value="'+i.id+'" data-cost="'+lastCost+'">'+i.name+' (Last Cost: Rs '+lastCost+')</option>';
     }).join('');
     let purchaseRows = PURCHASE_ITEMS.map((item, idx) => 
-      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.rate+'</td><td class="p-3">'+item.qty+'</td><td class="p-3 font-bold">Rs '+(item.rate * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removePurchaseItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
+      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.rate+'</td><td class="p-3">'+qtyText(item)+'</td><td class="p-3 font-bold">Rs '+(item.rate * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removePurchaseItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
     ).join('');
     let pGrandTotal = PURCHASE_ITEMS.reduce((sum, item) => sum + (Number(item.rate) * Number(item.qty)), 0);
 
@@ -1080,18 +1405,20 @@ function renderView(){
         '<div><label class="text-xs font-semibold text-slate-500">Select Vendor *</label><select id="purchaseVendor" class="input mt-1"><option value="">Select Vendor</option>'+compOptions+'</select></div>'+
         '<div><label class="text-xs font-semibold text-slate-500">Purchase Date *</label><input id="purchaseDate" type="date" class="input mt-1" value="'+new Date().toISOString().split('T')[0]+'"></div>'+
         '<div class="border-t pt-4 space-y-3">'+
-          '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="purchaseItem" onchange="onPurchaseItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select></div>'+
-          '<div class="grid grid-cols-2 gap-2">'+
-            '<div><label class="text-xs font-semibold text-slate-500">Purchase Rate (Rs)</label><input id="purchaseRate" type="number" class="input mt-1" placeholder="0"></div>'+
-            '<div><label class="text-xs font-semibold text-slate-500">Quantity</label><input id="purchaseQty" type="number" class="input mt-1" value="1" min="1"></div>'+
+          '<div><label class="text-xs font-semibold text-slate-500">Select Item *</label><select id="purchaseItem" onchange="onPurchaseItemChange()" class="input mt-1"><option value="">Select Item</option>'+itemOptions+'</select><div id="purchaseItemInfo" class="text-xs mt-1.5"></div></div>'+
+          '<div class="grid grid-cols-3 gap-2">'+
+            '<div><label class="text-xs font-semibold text-slate-500">Rate / Pcs (Rs)</label><input id="purchaseRate" type="number" class="input mt-1" placeholder="0"></div>'+
+            '<div><label class="text-xs font-semibold text-slate-500">Ctn</label><input id="purchaseCtn" type="number" min="0" class="input mt-1" placeholder="0" oninput="updatePurchaseQtyTotal()"></div>'+
+            '<div><label class="text-xs font-semibold text-slate-500">Pcs</label><input id="purchasePcs" type="number" min="0" class="input mt-1" placeholder="0" oninput="updatePurchaseQtyTotal()"></div>'+
           '</div>'+
+          '<div id="purchaseQtyTotal" class="text-xs text-slate-500">Total Qty: 0 Pcs</div>'+
           '<button onclick="addItemToPurchase()" class="btn-dark mt-2">+ Add to Purchase</button>'+
         '</div>'+
       '</div>'+
       '<div class="card p-5 md:col-span-2 flex flex-col justify-between">'+
         '<div>'+
           '<h3 class="font-bold text-lg border-b pb-2 mb-4">Items in Purchase ('+PURCHASE_ITEMS.length+')</h3>'+
-          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Rate</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(purchaseRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
+          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Rate / Pcs</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(purchaseRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
         '</div>'+
         '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
           '<div class="flex justify-between items-center"><div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600">Rs <span id="lblPurchaseGrandTotal">'+pGrandTotal.toLocaleString()+'</span></div></div><button onclick="saveFinalPurchase()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">Save Purchase Bill</button></div>'+
@@ -1115,6 +1442,7 @@ function renderView(){
     }).join('');
 
     v.innerHTML='<div class="card p-5 mb-6"><h3 class="font-bold mb-3" id="compTitle">Add Vendor</h3><div class="grid md:grid-cols-3 gap-3"><input id="compName" class="input" placeholder="Vendor Name *"><input id="compPhone" class="input" placeholder="Phone"><input id="compOpen" type="number" class="input" placeholder="Opening Balance"><input id="compAddr" class="input md:col-span-3" placeholder="Address"></div><div class="flex gap-2 mt-4"><button id="compBtn" onclick="saveCompany()" class="btn-green flex-1">Save Vendor</button><button id="compCancel" onclick="cancelComp()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    buildImportCard('vendors','Vendors')+
     '<div class="card p-5 mb-6"><input id="compSearchInput" class="input" placeholder="🔍 Search Vendor by Name, Phone, or Address..." value="'+COMP_SEARCH+'" oninput="COMP_SEARCH=this.value; renderView();"></div>'+
     '<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Vendor</th><th class="p-3">Balance</th><th class="p-3">Action</th></tr></thead><tbody>'+compRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('compSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
@@ -1138,6 +1466,7 @@ function renderView(){
     }).join('');
 
     v.innerHTML='<div class="card p-5 mb-6"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price (per Pcs) *"><input id="iStock" type="number" class="input" placeholder="Stock (Pcs)"><input id="iCtn" type="number" min="0" class="input" placeholder="Ctn Size (1 Ctn = kitne Pcs)"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    buildImportCard('items','Items')+
     '<div class="card p-5 mb-6"><input id="itemSearchInput" class="input" placeholder="🔍 Search Item by Name, Vendor, or Category..." value="'+ITEM_SEARCH+'" oninput="ITEM_SEARCH=this.value; renderView();"></div>'+
     '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Vendor</th><th class="p-3">Sale / Pcs</th><th class="p-3">Stock</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('itemSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
@@ -1174,6 +1503,7 @@ function renderView(){
       '</div>'+
       '<div class="flex gap-2 mt-4"><button id="custBtn" onclick="saveCustomer()" class="btn-green flex-1">Save Customer</button><button id="custCancel" onclick="cancelCust()" class="hidden border px-5 rounded-xl">Cancel</button></div>'+
     '</div>'+
+    buildImportCard('customers','Customers')+
     '<div class="card p-5 mb-6"><input id="custSearchInput" class="input" placeholder="🔍 Search Customer by Name, Phone, or Area..." value="'+CUST_SEARCH+'" oninput="CUST_SEARCH=this.value; renderView();"></div>'+
     '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Customer</th><th class="p-3">Area</th><th class="p-3">Status & Default Bill</th><th class="p-3">Balance</th><th class="p-3 text-left">Action</th></tr></thead><tbody>'+custRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('custSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
@@ -1221,7 +1551,9 @@ function renderView(){
       let cName = custObj ? custObj.name : '';
       let matchCust = !HIST_FILTERS.cust || cName.toLowerCase().includes(HIST_FILTERS.cust.toLowerCase());
       let matchType = !HIST_FILTERS.type || (b.bill_type || 'simple') === HIST_FILTERS.type;
-      return matchInv && matchDate && matchCust && matchType;
+      let bkObj = findSalesman(b.salesman_id);
+      let matchBooker = !HIST_FILTERS.booker || (bkObj && (bkObj.name || '').toLowerCase().includes(HIST_FILTERS.booker.toLowerCase()));
+      return matchInv && matchDate && matchCust && matchType && matchBooker;
     });
 
     let billRows = filteredBills.map(b => {
@@ -1235,7 +1567,8 @@ function renderView(){
         '<td class="p-3 text-center"><input type="checkbox" class="inv-checkbox" value="'+b.id+'"></td>'+
         '<td class="p-3 font-mono text-xs">'+b.invoice_no+'</td>'+
         '<td class="p-3 text-xs">'+new Date(b.created_at).toLocaleDateString()+'</td>'+
-        '<td class="p-3 font-semibold">'+cName+'<div class="text-[10px] text-slate-400">Salesman: '+sName+'</div></td>'+
+        '<td class="p-3 text-xs font-semibold text-indigo-700">'+esc(sName)+'</td>'+
+        '<td class="p-3 font-semibold">'+cName+'</td>'+
         '<td class="p-3 text-xs text-slate-600">'+cArea+'</td>'+
         '<td class="p-3">'+bType+'</td>'+
         '<td class="p-3 font-bold">Rs '+Number(b.total_amount||0).toLocaleString()+'</td>'+
@@ -1244,12 +1577,13 @@ function renderView(){
           '<button onclick="editBill(\''+b.id+'\')" class="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs shadow-sm">✏️ Edit</button>'+
         '</td>'+
       '</tr>';
-    }).join('') || '<tr><td colspan=8 class="p-8 text-center text-slate-400">Koi bill nahi mila</td></tr>';
+    }).join('') || '<tr><td colspan=9 class="p-8 text-center text-slate-400">Koi bill nahi mila</td></tr>';
 
-    v.innerHTML='<div class="card p-4 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3 bg-white shadow-sm">'+
+    v.innerHTML='<div class="card p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-3 bg-white shadow-sm">'+
       '<input id="histInv" class="input" placeholder="Search Invoice No..." value="'+HIST_FILTERS.inv+'" oninput="HIST_FILTERS.inv=this.value; LAST_FOCUSED_HIST_ID=\'histInv\'; renderView();">'+
       '<input id="histDate" type="date" class="input" value="'+HIST_FILTERS.date+'" onchange="HIST_FILTERS.date=this.value; renderView();">'+
       '<input id="histCust" class="input" placeholder="Search Customer..." value="'+HIST_FILTERS.cust+'" oninput="HIST_FILTERS.cust=this.value; LAST_FOCUSED_HIST_ID=\'histCust\'; renderView();">'+
+      '<input id="histBooker" class="input" placeholder="Search Booker..." value="'+esc(HIST_FILTERS.booker||'')+'" oninput="HIST_FILTERS.booker=this.value; LAST_FOCUSED_HIST_ID=\'histBooker\'; renderView();">'+
       '<select id="histType" class="input" onchange="HIST_FILTERS.type=this.value; renderView();">'+
         '<option value="" '+(HIST_FILTERS.type===''?'selected':'')+'>All Bill Types</option>'+
         '<option value="simple" '+(HIST_FILTERS.type==='simple'?'selected':'')+'>Simple Bill</option>'+
@@ -1257,7 +1591,7 @@ function renderView(){
       '</select>'+
     '</div>'+
     '<div class="mb-3"><button onclick="printSelectedInvoices()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold shadow hover:bg-slate-800">🖨️ Print Selected Bills</button></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Customer & Salesman</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllInvoices(this)"></th><th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date</th><th class="p-3 text-left">Booker</th><th class="p-3 text-left">Customer</th><th class="p-3 text-left">Area</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+billRows+'</tbody></table></div>';
     
     setTimeout(()=>{ 
       let el = document.getElementById(LAST_FOCUSED_HIST_ID); 
@@ -1730,6 +2064,7 @@ function removeSaleItem(index){
 function onPurchaseItemChange(){
   let itemEl = document.getElementById('purchaseItem');
   let itemId = itemEl.value;
+  showPurchaseItemInfo(); updatePurchaseQtyTotal();
   if(!itemId) return;
   let it = DATA.items.find(x => String(x.id) === String(itemId));
   let lastCost = getLastPurchaseRate(itemId) || (it ? (it.purchase_cost || 0) : 0);
@@ -1742,12 +2077,18 @@ function addItemToPurchase(){
   let itemEl = document.getElementById('purchaseItem');
   let itemId = itemEl.value;
   let rate = Number(document.getElementById('purchaseRate').value || 0);
-  let qty = Number(document.getElementById('purchaseQty').value || 1);
+  let ctn = Number(document.getElementById('purchaseCtn') ? document.getElementById('purchaseCtn').value : 0) || 0;
+  let pcs = Number(document.getElementById('purchasePcs') ? document.getElementById('purchasePcs').value : 0) || 0;
   if(!itemId) return alert('Kripya Item select karein!');
-  if(rate <= 0 || qty <= 0) return alert('Sahi rate aur quantity darj karein!');
   let it = DATA.items.find(x => String(x.id) === String(itemId));
   if(!it) return alert('Selected Item nahi mila!');
-  PURCHASE_ITEMS.push({ id: it.id, name: it.name, rate: rate, qty: qty });
+  let per = Number(it.ctn_pcs || 0);
+  if(ctn < 0 || pcs < 0) return alert('Quantity sahi darj karein!');
+  if(ctn > 0 && per <= 1) return alert('Is item ka Ctn size set nahi hai. Pehle Items mein "Ctn Size" daalein, ya sirf Pcs likhein.');
+  let qty = ctn * per + pcs;
+  if(rate <= 0 || qty <= 0) return alert('Sahi rate aur quantity (Ctn / Pcs) darj karein!');
+  if(per > 1){ ctn = Math.floor(qty / per); pcs = qty - ctn * per; }
+  PURCHASE_ITEMS.push({ id: it.id, name: it.name, rate: rate, qty: qty, ctn: ctn, pcs: pcs, ctn_pcs: per });
   renderView();
   if(document.getElementById('purchaseVendor')) document.getElementById('purchaseVendor').value = vendorId;
   if(document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = purchaseDate;
@@ -1781,10 +2122,17 @@ async function saveFinalPurchase(){
   let purchaseId = pData && pData.length > 0 ? pData[0].id : null;
   for(let item of PURCHASE_ITEMS){
     if(purchaseId){
-      await supa.from('purchase_items').insert([{ purchase_id: purchaseId, item_id: item.id, quantity: item.qty, rate: item.rate, total: item.rate * item.qty }]);
+      let piRow = { purchase_id: purchaseId, item_id: item.id, quantity: item.qty, price: item.rate, total: item.rate * item.qty };
+      let { error: piErr } = await supa.from('purchase_items').insert([piRow]);
+      if(piErr && /price/i.test(piErr.message)){
+        delete piRow.price; piRow.rate = item.rate;
+        let r2 = await supa.from('purchase_items').insert([piRow]);
+        piErr = r2.error;
+      }
+      if(piErr) console.warn('purchase_items error:', piErr.message);
     }
-    let currentIt = DATA.items.find(x => String(x.id) === String(item.id));
-    let newStock = Number(currentIt?.current_stock || 0) + Number(item.qty);
+    let { data: curRow } = await supa.from('items').select('current_stock').eq('id', item.id).single();
+    let newStock = Number(curRow ? curRow.current_stock : 0) + Number(item.qty);
     await supa.from('items').update({ current_stock: newStock, purchase_cost: item.rate }).eq('id', item.id);
   }
   let { error: lErr } = await supa.from('vendor_ledgers').insert([{ user_id: uid, company_id: vendorId, entry_date: purchaseDate, type: 'purchase', bill_no: billNo, description: 'Purchase Bill Items Total: Rs ' + grandTotal, debit: grandTotal, credit: 0 }]);
