@@ -33,7 +33,7 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
 
-let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[], staff_roles:[]};
+let DATA={customers:[],items:[],bills:[],companies:[],ledgers:[],cust_ledgers:[],banks:[],purchases:[],salesmen:[],all_users:[], audit_logs:[], staff:[], staff_roles:[], invoice_formats:[]};
 let CUR_CUSTOMER=null, CUR_COMPANY=null, SALE_ITEMS=[], PURCHASE_ITEMS=[], EDIT_ITEM_ID=null, EDIT_COMP_ID=null, EDIT_CUST_ID=null, EDIT_BILL_ID=null, EDIT_BANK_ID=null, EDIT_SALESMAN_ID=null, EDIT_STAFF_ID=null;
 let HIST_FILTERS = { inv: '', date: '', cust: '', type: '', booker: '' };
 let CUST_SEARCH = '', ITEM_SEARCH = '', COMP_SEARCH = '', SALESMAN_SEARCH = '', ACCOUNTS_SEARCH = '', STAFF_SEARCH = '', LAST_FOCUSED_HIST_ID = 'histInv';
@@ -44,6 +44,7 @@ let LOGGED_IN_STAFF = null;
 let ADMIN_TABS=[
   {id:'admin_dash',label:'Dashboard',icon:'📊'},
   {id:'admin_accounts',label:'Accounts',icon:'👥'},
+  {id:'admin_formats',label:'Invoice Formats',icon:'🧾'},
   {id:'admin_plans',label:'Subscription Plans',icon:'💳'},
   {id:'admin_settings',label:'Settings',icon:'⚙️'},
   {id:'admin_audit',label:'Audit Log',icon:'🕒'}
@@ -53,6 +54,7 @@ let USER_TABS=[
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
+  {id:'orders',label:'Orders (Pending)',icon:'⏳'},
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
   {id:'staff_mgmt',label:'Staff Management',icon:'🧑‍💻'},
@@ -70,6 +72,7 @@ const PERM_TABS = [
   {id:'dash',label:'Dashboard',icon:'📊'},
   {id:'sale',label:'New Sale',icon:'🧾'},
   {id:'purchase',label:'New Purchase',icon:'🛒'},
+  {id:'orders',label:'Orders (Pending)',icon:'⏳'},
   {id:'history',label:'Sales History',icon:'📜'},
   {id:'cust',label:'Customers',icon:'👥'},
   {id:'reports',label:'Reports',icon:'📈'},
@@ -196,8 +199,8 @@ let REP = { from: '', to: '', cust: '', sel: [], showItems: false };
 
 function setRep(k, val){ REP[k] = val; renderView(); }
 function repBills(){
-  return DATA.bills.filter(b => {
-    let d = (b.created_at || '').slice(0, 10);
+  return finBills().filter(b => {
+    let d = localDateStr(b.created_at);
     return (!REP.from || d >= REP.from) && (!REP.to || d <= REP.to);
   });
 }
@@ -359,7 +362,7 @@ function pdfBankReport(){
     rows.map(r => [r[0], r[1], r[2]]), ['TOTAL', '', Math.round(total).toLocaleString()], [2]);
 }
 function pdfSummaryReport(){
-  let totalSale = DATA.bills.reduce((s, b) => s + Number(b.total_amount || 0), 0);
+  let totalSale = finBills().reduce((s, b) => s + Number(b.total_amount || 0), 0);
   let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
   let totalVendorBal = DATA.companies.reduce((sum, c) => sum + getBal(c.id), 0);
   openPdf('System Summary Report', 'Poore system ka khulasa', ['Detail', 'Value'], [
@@ -370,7 +373,7 @@ function pdfSummaryReport(){
     ['Total Vendors / Suppliers', DATA.companies.length],
     ['Total Inventory Items', DATA.items.length],
     ['Total Staff', DATA.staff.length],
-    ['Total Invoices Issued', DATA.bills.length]
+    ['Total Invoices Issued', finBills().length]
   ], null, [1]);
 }
 
@@ -412,7 +415,7 @@ function buildImportCard(kind, label){
 function downloadTemplate(kind){
   if(!window.XLSX) return alert('Excel library load nahi hui. Internet check kar ke page refresh karein.');
   let samples = {
-    items: [['Item Name', 'Vendor', 'Purchase Cost', 'Sale Price', 'Stock (Pcs)', 'Ctn Size'], ['Biscuit 50g', 'ABC Traders', 8, 10, 240, 24]],
+    items: [['Item Name', 'Company', 'Vendor', 'Purchase Cost', 'Sale Price', 'Stock (Pcs)', 'Ctn Size'], ['Biscuit 50g', 'Peek Freans', 'ABC Traders', 8, 10, 240, 24]],
     customers: [['Name', 'Phone', 'Area', 'Registered (Yes/No)', 'Bill Type (Simple/Tax)', 'Opening Balance'], ['Ali Store', '0300-1234567', 'Gulshan', 'No', 'Simple', 5000]],
     vendors: [['Vendor Name', 'Phone', 'Address', 'Opening Balance'], ['ABC Traders', '0321-1234567', 'Rawalpindi', 0]]
   };
@@ -455,7 +458,7 @@ async function importExcel(kind, input){
         if(existing.has(key) || seen.has(key)){ dup++; return; }
         seen.add(key);
         list.push({
-          name: name, vendor: String(pickVal(r, ['vendor', 'vendorname', 'company', 'companyname', 'supplier'])).trim(),
+          name: name, vendor: String(pickVal(r, ['vendor', 'vendorname', 'supplier'])).trim(), company: String(pickVal(r, ['company', 'companyname', 'brand', 'manufacturer'])).trim(),
           pur: toNum(pickVal(r, ['purchasecost', 'purchaseprice', 'cost', 'costprice'])),
           sale: toNum(pickVal(r, ['saleprice', 'sellingprice', 'price', 'rate', 'salecost'])),
           stock: toNum(pickVal(r, ['stockpcs', 'stock', 'openingstock', 'qty', 'quantity'])),
@@ -472,7 +475,7 @@ async function importExcel(kind, input){
       }
       let payload = list.map(x => {
         let comp = x.vendor ? DATA.companies.find(c => String(c.name || '').trim().toLowerCase() === x.vendor.toLowerCase()) : null;
-        return { user_id: uid, name: x.name, company_id: comp ? comp.id : null, purchase_cost: x.pur, sale_price: x.sale, sale_cost: x.sale, current_stock: x.stock, ctn_pcs: x.ctn };
+        return { user_id: uid, name: x.name, company_id: comp ? comp.id : null, purchase_cost: x.pur, sale_price: x.sale, sale_cost: x.sale, current_stock: x.stock, ctn_pcs: x.ctn, company: x.company };
       });
       let r1 = await insertChunks('items', payload);
       if(r1.error) return alert('Upload beech mein ruk gaya (' + r1.done.length + ' items add hue): ' + r1.error.message);
@@ -577,7 +580,7 @@ function canAutoRerender(){
   if(!v) return false;
   let ae = document.activeElement;
   if(ae && v.contains(ae) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName) && !/hist|search|rep/i.test(ae.id || '')) return false;
-  if(v.querySelector('.inv-checkbox:checked')) return false;
+  if(v.querySelector('.inv-checkbox:checked, .ord-checkbox:checked')) return false;
   let dirty = [...v.querySelectorAll('input,select,textarea')].some(el => {
     if(/hist|search|rep/i.test(el.id || '')) return false;
     let t = (el.type || '').toLowerCase();
@@ -595,6 +598,7 @@ async function liveRefresh(){
   if(!APP_READY_UID || RT_DIRTY.size === 0) return;
   let tables = [...RT_DIRTY];
   RT_DIRTY.clear();
+  let prevPend = pendBills().length;
   let done = {};
   for(let t of tables){
     let key = RT_MAP[t];
@@ -605,10 +609,335 @@ async function liveRefresh(){
     DATA[key] = await safeLoad(name);
   }
   if(LOGGED_IN_STAFF) refreshStaffTabs();
+  renderSide();
+  if(!LOGGED_IN_STAFF && CURRENT_USER_ROLE !== 'super_admin' && pendBills().length > prevPend && curTab !== 'orders') toast('🔔 Naya order aaya hai! (Orders window dekhein)');
   if(!canAutoRerender()) return;
   let origFocus = HTMLElement.prototype.focus;
   HTMLElement.prototype.focus = function(){};
   try { renderView(); } finally { setTimeout(() => { HTMLElement.prototype.focus = origFocus; }, 250); }
+}
+
+// ==================== TIME / ORDER HELPERS ====================
+function parseTs(s){
+  if(!s) return new Date(NaN);
+  s = String(s);
+  if(!/(Z|[+-]\d\d:?\d\d)$/.test(s)) s = s.replace(' ', 'T') + 'Z';
+  return new Date(s);
+}
+function pad2(n){ return String(n).padStart(2, '0'); }
+function localDateStr(s){
+  let d = parseTs(s);
+  if(isNaN(d)) return '';
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function billTime(b){
+  let d = parseTs(b.created_at);
+  return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function billDateStr(b){
+  let d = parseTs(b.created_at);
+  return isNaN(d) ? '' : d.toLocaleDateString();
+}
+function isFinal(b){ return b.is_finalized !== false; }
+function finBills(){ return DATA.bills.filter(isFinal); }
+function pendBills(){ return DATA.bills.filter(b => !isFinal(b)); }
+function toast(msg){
+  let t = document.createElement('div');
+  t.className = 'fixed top-4 right-4 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg text-sm font-semibold';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.remove(); }, 6000);
+}
+
+// ==================== SALE: DISCOUNT STATE ====================
+let SALE_DISC = { type: 'amount', val: '' };
+let SALE_AS_ORDER = false;
+let SAVING_BILL = false;
+function restoreSaleDisc(){
+  let t = document.getElementById('saleDiscType'), v = document.getElementById('saleDiscVal'), o = document.getElementById('saleAsOrder');
+  if(t) t.value = SALE_DISC.type || 'amount';
+  if(v) v.value = SALE_DISC.val === undefined ? '' : SALE_DISC.val;
+  if(o) o.checked = !!SALE_AS_ORDER;
+}
+
+// ==================== ORDERS WINDOW ====================
+let ORD_SEARCH = '';
+function toggleSelectAllOrders(master){
+  document.querySelectorAll('.ord-checkbox').forEach(cb => { cb.checked = master.checked; });
+}
+function renderOrdersView(v){
+  let isOwner = !LOGGED_IN_STAFF;
+  let q = ORD_SEARCH.toLowerCase();
+  let list = pendBills().filter(b => {
+    if(!q) return true;
+    let c = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+    let s = findSalesman(b.salesman_id);
+    return (b.invoice_no || '').toLowerCase().includes(q) || ((c && c.name) || '').toLowerCase().includes(q) || ((s && s.name) || '').toLowerCase().includes(q);
+  });
+  let rows = list.map(b => {
+    let c = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+    let s = findSalesman(b.salesman_id);
+    let items = parseBillItems(b);
+    let names = items.slice(0, 3).map(i => esc(i.name)).join(', ') + (items.length > 3 ? ' +' + (items.length - 3) + ' aur' : '');
+    return '<tr class="border-b hover:bg-amber-50/40">' +
+      (isOwner ? '<td class="p-3 text-center"><input type="checkbox" class="ord-checkbox" value="' + b.id + '"></td>' : '') +
+      '<td class="p-3 font-mono text-xs">' + esc(b.invoice_no) + '</td>' +
+      '<td class="p-3 text-xs">' + billDateStr(b) + '<div class="text-[10px] text-slate-400">🕒 ' + billTime(b) + '</div></td>' +
+      '<td class="p-3 text-xs font-semibold text-indigo-700">' + esc(s ? s.name : '-') + '</td>' +
+      '<td class="p-3 font-semibold">' + esc(c ? c.name : '-') + '<div class="text-[10px] text-slate-400">' + esc(c ? (c.area || '') : '') + '</div></td>' +
+      '<td class="p-3 text-xs text-slate-600">' + names + '</td>' +
+      '<td class="p-3 font-bold">Rs ' + Number(b.total_amount || 0).toLocaleString() + '</td>' +
+      '<td class="p-3"><div class="flex gap-1 justify-center"><button onclick="printInvoice(\'' + b.id + '\')" class="px-2 py-1 bg-green-600 text-white rounded-lg text-xs">🖨️</button>' +
+        (isOwner ? '<button onclick="editBill(\'' + b.id + '\')" class="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs">✏️ Edit</button><button onclick="cancelOrder(\'' + b.id + '\')" class="px-2 py-1 bg-red-500 text-white rounded-lg text-xs">✕</button>' : '') +
+      '</div></td></tr>';
+  }).join('') || '<tr><td colspan="' + (isOwner ? 8 : 7) + '" class="p-8 text-center text-slate-400">Koi pending order nahi hai</td></tr>';
+
+  v.innerHTML =
+    '<div class="card p-4 mb-4 flex flex-wrap gap-3 items-center">' +
+      '<input id="ordSearch" class="input flex-1 min-w-[200px]" placeholder="Search Order (Invoice, Customer, Booker)..." value="' + esc(ORD_SEARCH) + '" oninput="ORD_SEARCH=this.value; renderView();">' +
+      (isOwner ? '<button onclick="finalizeSelectedOrders()" class="btn-green !w-auto px-6 py-2.5">✅ Finalize Selected (Supply Ho Gaya)</button>' : '') +
+    '</div>' +
+    '<div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">' +
+      (isOwner ? '⏳ Ye woh orders hain jin ki supply abhi nahi hui. Jab maal supply ho jaye to us order ke saath tick karein aur <b>Finalize</b> dabayein. Tab wo <b>Sales History</b> mein chala jayega, stock kam hoga aur customer ke hisab mein lag jayega.'
+               : '⏳ Ye aap ke orders hain jin ki supply abhi nahi hui. Owner supply ke baad inhein finalize karega.') +
+    '</div>' +
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr>' +
+      (isOwner ? '<th class="p-3 text-center"><input type="checkbox" onclick="toggleSelectAllOrders(this)"></th>' : '') +
+      '<th class="p-3 text-left">Invoice</th><th class="p-3 text-left">Date & Time</th><th class="p-3 text-left">Booker</th><th class="p-3 text-left">Customer</th><th class="p-3 text-left">Items</th><th class="p-3 text-left">Amount</th><th class="p-3 text-center">Action</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+async function cancelOrder(id){
+  if(LOGGED_IN_STAFF) return;
+  let b = DATA.bills.find(x => String(x.id) === String(id));
+  if(!b || isFinal(b)) return;
+  if(!confirm('Order ' + b.invoice_no + ' cancel (delete) karna chahte hain? Ye wapas nahi aayega.')) return;
+  let { error } = await supa.from('bills').delete().eq('id', id).eq('is_finalized', false);
+  if(error){ alert('Error: ' + error.message); return; }
+  await loadAll();
+}
+async function finalizeSelectedOrders(){
+  if(LOGGED_IN_STAFF) return alert('Sirf owner finalize kar sakta hai.');
+  let ids = [...document.querySelectorAll('.ord-checkbox:checked')].map(cb => cb.value);
+  if(!ids.length) return alert('Kam az kam ek order select karein (supply hone par tick karein)!');
+  let bills = ids.map(id => DATA.bills.find(b => String(b.id) === String(id))).filter(b => b && !isFinal(b));
+  if(!bills.length) return;
+  // stock check
+  let need = {};
+  bills.forEach(b => parseBillItems(b).forEach(i => { need[i.id] = (need[i.id] || 0) + Number(i.qty || 0); }));
+  let short = [];
+  Object.keys(need).forEach(id => {
+    let it = DATA.items.find(x => String(x.id) === String(id));
+    if(it && Number(it.current_stock || 0) < need[id]) short.push(it.name + ' (chahiye ' + need[id] + ', maujood ' + Number(it.current_stock || 0) + ')');
+  });
+  let msg = bills.length + ' order(s) finalize karein?\nYe Sales History mein chale jayenge, stock kam hoga aur customer ke hisab mein lag jayenge.';
+  if(short.length) msg += '\n\n⚠️ In items ka stock kam hai:\n' + short.slice(0, 8).join('\n');
+  if(!confirm(msg)) return;
+  let uid = await getUserId();
+  let today = new Date().toISOString().split('T')[0];
+  let done = 0;
+  for(let b of bills){
+    let items = parseBillItems(b).map(i => Object.assign({}, i, { sd: 1 }));
+    // pehle mark karein (agar kisi aur ne pehle finalize kar diya to yahan koi row nahi aayegi)
+    let { data: upd, error } = await supa.from('bills').update({ is_finalized: true, finalized_at: new Date().toISOString(), items: JSON.stringify(items) }).eq('id', b.id).eq('is_finalized', false).select('id');
+    if(error){ alert('Finalize mein error: ' + error.message); break; }
+    if(!upd || !upd.length) continue;
+    await applyStockChanges([], items);
+    await supa.from('customer_ledger').insert([{ user_id: uid, customer_id: b.customer_id, date: today, type: 'sale', bill_no: b.invoice_no, description: 'Sale Bill Total: Rs ' + b.total_amount, debit: Number(b.total_amount || 0), credit: 0 }]);
+    done++;
+  }
+  if(done) alert('✅ ' + done + ' order(s) finalize ho gaye aur Sales History mein aa gaye.');
+  await loadAll();
+}
+
+// ==================== INVOICE FORMATS ====================
+const DEFAULT_INV_CFG = {
+  layout: 'classic', paper: 'A4', accent: '#0f172a', fontSize: 13,
+  company: 'QNH ENTERPRISES', tagline: 'Distribution System', address: '', phone: '', ntn: '', strn: '',
+  title: 'INVOICE', footer: '', terms: '', sign1: 'Received By', sign2: 'Authorized Signature',
+  showSr: true, showCtn: true, showRate: true, showSalesman: true, showArea: true, showTime: true, showDiscount: true
+};
+let INV_CFG = Object.assign({}, DEFAULT_INV_CFG), INV_CFG_LOADED = false, INV_FORMATS_OK = false;
+
+async function loadInvoiceFormat(){
+  try {
+    let { data, error } = await supa.rpc('qnh_my_invoice_format');
+    INV_CFG = Object.assign({}, DEFAULT_INV_CFG, (!error && data && typeof data === 'object') ? data : {});
+  } catch(e) { INV_CFG = Object.assign({}, DEFAULT_INV_CFG); }
+  INV_CFG_LOADED = true;
+}
+
+function invoiceCss(cfg){
+  let a = cfg.accent || '#0f172a', fs = Number(cfg.fontSize) || 13, L = cfg.layout;
+  let paper = (L === 'thermal' || cfg.paper === 'thermal80') ? '@page{size:80mm auto;margin:3mm}' : (cfg.paper === 'A5' ? '@page{size:A5;margin:10mm}' : '@page{size:A4;margin:12mm}');
+  let th = L === 'thermal';
+  let base = 'body{font-family:' + (th ? "'Courier New',monospace" : 'Arial,Helvetica,sans-serif') + ';color:#222;margin:0;padding:' + (th ? '4px' : '18px') + ';font-size:' + fs + 'px}' +
+    '.inv{page-break-after:always;' + (th ? 'width:72mm;margin:0 auto' : '') + '}.inv:last-child{page-break-after:auto}' +
+    'table{width:100%;border-collapse:collapse;margin:10px 0}th,td{padding:' + (L === 'compact' ? '3px 5px' : '6px 8px') + ';text-align:left;font-size:' + (L === 'compact' ? fs - 1 : fs) + 'px}' +
+    '.r{text-align:right}.c{text-align:center}.meta{display:flex;justify-content:space-between;gap:12px;margin:10px 0}.meta p{margin:2px 0}' +
+    '.tot{margin-left:auto;width:' + (th ? '100%' : '260px') + '}.tot div{display:flex;justify-content:space-between;padding:3px 0}' +
+    '.tot .g{font-weight:bold;font-size:' + (fs + 3) + 'px;border-top:2px solid ' + a + ';margin-top:4px;padding-top:6px}' +
+    '.sign{display:flex;justify-content:space-between;margin-top:46px}.sign div{border-top:1px solid #555;padding-top:4px;min-width:140px;text-align:center;font-size:' + (fs - 2) + 'px}' +
+    '.foot{margin-top:14px;font-size:' + (fs - 2) + 'px;color:#555}';
+  let lay;
+  if(L === 'modern') lay = '.hd{background:' + a + ';color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:6px}.hd h2{margin:0;font-size:' + (fs + 7) + 'px}.hd p{margin:2px 0;opacity:.85;font-size:' + (fs - 2) + 'px}.ttl{font-size:' + (fs + 9) + 'px;font-weight:bold;letter-spacing:3px}th{background:' + a + ';color:#fff}td{border-bottom:1px solid #e5e7eb}tbody tr:nth-child(even){background:#f8fafc}';
+  else if(L === 'compact') lay = '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ' + a + ';padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 4) + 'px}.hd p{margin:1px 0;color:#555;font-size:' + (fs - 2) + 'px}.ttl{font-weight:bold;color:' + a + ';text-align:right}th{background:#eee;border:1px solid #ccc}td{border:1px solid #ddd}';
+  else if(th) lay = '.hd{text-align:center;border-bottom:1px dashed #000;padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 3) + 'px}.hd p{margin:1px 0;font-size:' + (fs - 2) + 'px}.ttl{text-align:center;font-weight:bold;margin:4px 0}th,td{padding:2px;border-bottom:1px dashed #999}th{border-top:1px dashed #000}';
+  else lay = '.hd{text-align:center;margin-bottom:8px}.hd h2{margin:0;font-size:' + (fs + 9) + 'px}.hd p{margin:2px 0;color:#555}.ttl{text-align:center;font-weight:bold;letter-spacing:2px;border-top:2px solid ' + a + ';border-bottom:2px solid ' + a + ';padding:4px 0;margin:8px 0}th{background:#f2f2f2}th,td{border:1px solid #ddd}';
+  return paper + base + lay;
+}
+
+function buildInvoicePage(b, cfg, cust, sal){
+  let items = parseBillItems(b);
+  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+  let disc = Number(b.discount || 0);
+  let total = Number(b.total_amount || 0);
+  let tax = Math.round((total - (sub - disc)) * 100) / 100;
+  let L = cfg.layout;
+  let contact = [cfg.address, cfg.phone ? 'Ph: ' + cfg.phone : '', cfg.ntn ? 'NTN: ' + cfg.ntn : '', cfg.strn ? 'STRN: ' + cfg.strn : ''].filter(Boolean).map(esc).join(' | ');
+  let head;
+  if(L === 'modern') head = '<div class="hd"><div><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div></div>';
+  else if(L === 'compact') head = '<div class="hd"><div><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '<div style="font-weight:normal;color:#444">' + esc(b.invoice_no) + '</div></div></div>';
+  else head = '<div class="hd"><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div>';
+  let metaL = '<p><b>Invoice No:</b> ' + esc(b.invoice_no) + '</p><p><b>Customer:</b> ' + esc(cust ? cust.name : 'Walk-in Customer') + (cfg.showArea && cust && cust.area ? ' (' + esc(cust.area) + ')' : '') + '</p>' + (cfg.showSalesman ? '<p><b>Booker:</b> ' + esc(sal ? sal.name : '-') + '</p>' : '');
+  let metaR = '<p><b>Date:</b> ' + billDateStr(b) + '</p>' + (cfg.showTime ? '<p><b>Time:</b> ' + billTime(b) + '</p>' : '') + '<p><b>Type:</b> ' + esc((b.bill_type || 'simple').toUpperCase()) + '</p>';
+  let thead = '<tr>' + (cfg.showSr ? '<th class="c">#</th>' : '') + '<th>Item</th>' + (cfg.showRate ? '<th class="r">Rate</th>' : '') + '<th class="c">Qty</th><th class="r">Amount</th></tr>';
+  let body = items.map((i, idx) => '<tr>' + (cfg.showSr ? '<td class="c">' + (idx + 1) + '</td>' : '') + '<td>' + esc(i.name) + '</td>' + (cfg.showRate ? '<td class="r">' + Number(i.price || 0).toLocaleString() + '</td>' : '') + '<td class="c">' + (cfg.showCtn ? esc(qtyText(i)) : Number(i.qty || 0)) + '</td><td class="r">' + Math.round(Number(i.price || 0) * Number(i.qty || 0)).toLocaleString() + '</td></tr>').join('');
+  let showLines = cfg.showDiscount && (disc > 0 || tax > 0.5);
+  let totals = '<div class="tot">' +
+    (showLines ? '<div><span>Sub Total</span><span>Rs ' + Math.round(sub).toLocaleString() + '</span></div>' : '') +
+    (cfg.showDiscount && disc > 0 ? '<div><span>Discount</span><span>- Rs ' + Math.round(disc).toLocaleString() + '</span></div>' : '') +
+    (cfg.showDiscount && tax > 0.5 ? '<div><span>Tax</span><span>Rs ' + Math.round(tax).toLocaleString() + '</span></div>' : '') +
+    '<div class="g"><span>Grand Total</span><span>Rs ' + Math.round(total).toLocaleString() + '</span></div></div>';
+  let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + (L !== 'thermal' ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
+  return '<div class="inv">' + head + '<div class="meta"><div>' + metaL + '</div><div>' + metaR + '</div></div><table><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + totals + foot + '</div>';
+}
+function wrapInvoiceDoc(pagesHtml, cfg, doPrint){
+  return '<html><head><meta charset="utf-8"><title>Invoice</title><style>' + invoiceCss(cfg) + '</style></head><body>' + pagesHtml + (doPrint ? '<script>window.onload=function(){window.print();}<\/script>' : '') + '</body></html>';
+}
+function openInvoiceWindow(html){
+  let w = window.open('', '_blank', 'width=900,height=700');
+  if(!w) return alert('Browser ne naya tab block kiya. Popup allow karein.');
+  w.document.write(html);
+  w.document.close();
+}
+function printInvoice(id){
+  let b = DATA.bills.find(x => String(x.id) === String(id));
+  if(!b) return alert('Bill nahi mila!');
+  let cust = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+  openInvoiceWindow(wrapInvoiceDoc(buildInvoicePage(b, INV_CFG, cust, findSalesman(b.salesman_id)), INV_CFG, true));
+}
+function printSelectedInvoices(){
+  let checked = document.querySelectorAll('.inv-checkbox:checked');
+  if(checked.length === 0) return alert('Kam az kam ek bill select karein!');
+  let ids = Array.from(checked).map(cb => cb.value);
+  let pages = DATA.bills.filter(b => ids.includes(String(b.id))).map(b => {
+    let cust = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+    return buildInvoicePage(b, INV_CFG, cust, findSalesman(b.salesman_id));
+  }).join('');
+  openInvoiceWindow(wrapInvoiceDoc(pages, INV_CFG, true));
+}
+
+// ---------- Super Admin: Invoice Formats ----------
+const FMT_FIELDS = [
+  { k: 'title', label: 'Invoice Title', ph: 'INVOICE' }, { k: 'company', label: 'Company Name' }, { k: 'tagline', label: 'Tagline' },
+  { k: 'address', label: 'Address' }, { k: 'phone', label: 'Phone' }, { k: 'ntn', label: 'NTN' }, { k: 'strn', label: 'STRN' },
+  { k: 'footer', label: 'Footer Note' }, { k: 'terms', label: 'Terms / Conditions' }, { k: 'sign1', label: 'Signature 1' }, { k: 'sign2', label: 'Signature 2' }
+];
+const FMT_FLAGS = [
+  { k: 'showSr', label: 'Serial No (#) column' }, { k: 'showCtn', label: 'Qty mein Ctn + Pcs' }, { k: 'showRate', label: 'Rate column' },
+  { k: 'showSalesman', label: 'Booker ka naam' }, { k: 'showArea', label: 'Customer ka Area' }, { k: 'showTime', label: 'Order ka Time' },
+  { k: 'showDiscount', label: 'Discount / Tax lines' }
+];
+let FMT_FORM = { name: '', cfg: Object.assign({}, DEFAULT_INV_CFG) };
+let EDIT_FMT_ID = null;
+
+function sampleBill(){
+  return { invoice_no: 'INV-1001', created_at: new Date().toISOString(), bill_type: 'tax', sub_total: 2070, discount: 70, total_amount: 2360,
+    items: [{ name: 'Biscuit 50g', price: 10, qty: 120, ctn: 5, pcs: 0 }, { name: 'Candy Mix', price: 5, qty: 30, ctn: 0, pcs: 30 }, { name: 'Soap Large', price: 60, qty: 12, ctn: 1, pcs: 0 }] };
+}
+function previewCfg(cfg){
+  let c = Object.assign({}, DEFAULT_INV_CFG, cfg);
+  openInvoiceWindow(wrapInvoiceDoc(buildInvoicePage(sampleBill(), c, { name: 'Ali Store', area: 'Gulshan' }, { name: 'Ahmed' }), c, false));
+}
+function previewFormat(id){
+  let f = DATA.invoice_formats.find(x => String(x.id) === String(id));
+  if(f) previewCfg(f.config || {});
+}
+function previewDraftFormat(){ previewCfg(FMT_FORM.cfg); }
+
+function renderFormatsView(v){
+  if(!INV_FORMATS_OK){
+    v.innerHTML = '<div class="card p-8 text-center"><div class="text-4xl mb-2">🛠️</div><h3 class="font-bold text-lg mb-1">Invoice Formats abhi tayyar nahi</h3><p class="text-sm text-slate-500">Supabase SQL Editor mein <b>orders_formats.sql</b> chalayein, phir page refresh karein.</p></div>';
+    return;
+  }
+  let f = FMT_FORM.cfg;
+  let inputs = FMT_FIELDS.map(x => '<div><label class="text-[11px] font-bold text-slate-500">' + x.label + '</label><input class="input mt-1" data-nocap value="' + esc(f[x.k] || '') + '" placeholder="' + esc(x.ph || '') + '" oninput="FMT_FORM.cfg[\'' + x.k + '\']=this.value"></div>').join('');
+  let flags = FMT_FLAGS.map(x => '<label class="flex items-center gap-2 text-sm bg-white border rounded-lg p-2 cursor-pointer"><input type="checkbox" ' + (f[x.k] ? 'checked ' : '') + 'onchange="FMT_FORM.cfg[\'' + x.k + '\']=this.checked"> ' + x.label + '</label>').join('');
+  let sel = (k, opts) => '<select class="input mt-1" onchange="FMT_FORM.cfg[\'' + k + '\']=this.value">' + opts.map(o => '<option value="' + o[0] + '"' + (f[k] === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>';
+  let cards = DATA.invoice_formats.map(x => {
+    let used = DATA.all_users.filter(u => String(u.invoice_format_id || '') === String(x.id)).length;
+    let c = x.config || {};
+    return '<div class="card p-4 flex flex-wrap items-center gap-3 justify-between"><div class="flex items-center gap-3"><span class="inline-block w-5 h-5 rounded border" style="background:' + esc(c.accent || '#0f172a') + '"></span><div><div class="font-bold">' + esc(x.name) + '</div><div class="text-[11px] text-slate-500">' + esc(c.layout || 'classic') + ' | ' + esc(c.paper || 'A4') + ' | ' + used + ' client(s) use kar rahe hain</div></div></div>' +
+      '<div class="flex gap-1 flex-wrap"><button onclick="previewFormat(\'' + x.id + '\')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs">👁 Preview</button><button onclick="editFormat(\'' + x.id + '\')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs">✏️ Edit</button><button onclick="dupFormat(\'' + x.id + '\')" class="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-xs">⧉ Copy</button><button onclick="delFormat(\'' + x.id + '\')" class="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs">X</button></div></div>';
+  }).join('') || '<div class="card p-8 text-center text-slate-400">Abhi koi format save nahi hua. Upar se naya banayein.</div>';
+  v.innerHTML =
+    '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">' + (EDIT_FMT_ID ? 'Edit Invoice Format' : 'New Invoice Format') + '</h3>' +
+      '<input id="fmtName" class="input mb-3" data-nocap placeholder="Format Name (e.g. Classic Blue) *" value="' + esc(FMT_FORM.name) + '" oninput="FMT_FORM.name=this.value">' +
+      '<div class="grid md:grid-cols-4 gap-3 mb-3">' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Layout</label>' + sel('layout', [['classic', 'Classic (Centered)'], ['modern', 'Modern (Colour Band)'], ['compact', 'Compact (Dense)'], ['thermal', 'Thermal Receipt (80mm)']]) + '</div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Paper</label>' + sel('paper', [['A4', 'A4'], ['A5', 'A5'], ['thermal80', 'Thermal 80mm']]) + '</div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Accent Colour</label><input type="color" class="input mt-1 !p-1 h-[42px]" value="' + esc(f.accent || '#0f172a') + '" oninput="FMT_FORM.cfg.accent=this.value"></div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Font Size (px)</label><input type="number" min="9" max="20" class="input mt-1" value="' + esc(f.fontSize || 13) + '" oninput="FMT_FORM.cfg.fontSize=Number(this.value)||13"></div>' +
+      '</div>' +
+      '<div class="grid md:grid-cols-3 gap-3 mb-3">' + inputs + '</div>' +
+      '<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">' + flags + '</div>' +
+      '<div class="flex gap-2 flex-wrap"><button onclick="saveFormat()" class="btn-green !w-auto px-6">' + (EDIT_FMT_ID ? 'Update Format' : 'Save Format') + '</button><button onclick="previewDraftFormat()" class="border px-5 rounded-xl text-sm font-semibold">👁 Preview</button>' + (EDIT_FMT_ID ? '<button onclick="cancelFormat()" class="border px-5 rounded-xl text-sm">Cancel</button>' : '') + '</div>' +
+    '</div>' +
+    '<h3 class="font-bold mb-3">Saved Formats (' + DATA.invoice_formats.length + ')</h3><div class="space-y-3">' + cards + '</div>' +
+    '<div class="text-[11px] text-slate-500 mt-4">Client ko format dene ke liye: <b>Accounts</b> tab mein us client ki row mein "Invoice Format" chunein aur Save dabayein. Us client (aur us ke staff) ki invoices usi format mein khulengi.</div>';
+}
+async function saveFormat(){
+  let name = (FMT_FORM.name || '').trim();
+  if(!name) return alert('Format ka naam likhein!');
+  let payload = { name: name, config: FMT_FORM.cfg };
+  let res = EDIT_FMT_ID ? await supa.from('invoice_formats').update(payload).eq('id', EDIT_FMT_ID) : await supa.from('invoice_formats').insert([payload]);
+  if(res.error) return alert('Format save nahi hua: ' + res.error.message);
+  cancelFormat();
+  await loadAll();
+}
+function editFormat(id){
+  let f = DATA.invoice_formats.find(x => String(x.id) === String(id));
+  if(!f) return;
+  EDIT_FMT_ID = id;
+  FMT_FORM = { name: f.name, cfg: Object.assign({}, DEFAULT_INV_CFG, f.config || {}) };
+  renderView();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function cancelFormat(){
+  EDIT_FMT_ID = null;
+  FMT_FORM = { name: '', cfg: Object.assign({}, DEFAULT_INV_CFG) };
+  renderView();
+}
+async function dupFormat(id){
+  let f = DATA.invoice_formats.find(x => String(x.id) === String(id));
+  if(!f) return;
+  let { error } = await supa.from('invoice_formats').insert([{ name: f.name + ' (Copy)', config: f.config || {} }]);
+  if(error) return alert('Copy nahi hua: ' + error.message);
+  await loadAll();
+}
+async function delFormat(id){
+  let used = DATA.all_users.filter(u => String(u.invoice_format_id || '') === String(id)).length;
+  if(!confirm('Ye format delete karna chahte hain?' + (used ? '\n' + used + ' client is format ko use kar rahe hain, un ki invoice Default (Classic) format par wapas aa jayegi.' : ''))) return;
+  let { error } = await supa.from('invoice_formats').delete().eq('id', id);
+  if(error) return alert('Error: ' + error.message);
+  if(String(EDIT_FMT_ID) === String(id)) cancelFormat();
+  await loadAll();
+}
+
+// ==================== ITEMS: COMPANY LIST ====================
+function companyListHtml(){
+  let set = [...new Set(DATA.items.map(i => (i.company || '').trim()).filter(Boolean))].sort();
+  return '<datalist id="companyList">' + set.map(c => '<option value="' + esc(c) + '"></option>').join('') + '</datalist>';
 }
 
 // ==================== AUTO CAPITAL (pehla letter) ====================
@@ -669,7 +998,7 @@ async function seedDefaultRoles(){
   if(!uid) return;
   let all = PERM_TABS.map(p=>p.id);
   await supa.from('staff_roles').insert([
-    { user_id: uid, name: 'Booker', permissions: ['sale','history','cust'] },
+    { user_id: uid, name: 'Booker', permissions: ['sale','orders','history','cust'] },
     { user_id: uid, name: 'Accountant', permissions: ['dash','purchase','history','cust','banks','reports','company'] },
     { user_id: uid, name: 'Manager', permissions: all }
   ]);
@@ -912,6 +1241,7 @@ async function handleLogout(){
   AUTH_UID = null;
   APP_READY_UID = null;
   stopRealtime();
+  INV_CFG_LOADED = false; INV_CFG = Object.assign({}, DEFAULT_INV_CFG); INV_FORMATS_OK = false;
   Object.keys(DATA).forEach(k => { DATA[k] = []; });
   SALE_ITEMS = []; PURCHASE_ITEMS = []; EDIT_BILL_ID = null; EDIT_STAFF_ID = null;
   TABS = USER_TABS; curTab = 'dash';
@@ -953,7 +1283,7 @@ function renderSide(){
   let navEl = document.getElementById('sideNav');
   if(!navEl) return;
   navEl.innerHTML = TABS.map(t => 
-    '<button onclick="openTab(\'' + t.id + '\')" class="w-full text-left px-3.5 py-3 rounded-xl flex gap-3 text-[14px] ' + (curTab===t.id ? 'bg-slate-900 text-white shadow' : 'hover:bg-slate-100') + '"><span>' + t.icon + '</span>' + t.label + '</button>'
+    '<button onclick="openTab(\'' + t.id + '\')" class="w-full text-left px-3.5 py-3 rounded-xl flex gap-3 text-[14px] ' + (curTab===t.id ? 'bg-slate-900 text-white shadow' : 'hover:bg-slate-100') + '"><span>' + t.icon + '</span>' + t.label + (t.id === 'orders' && pendBills().length ? '<span class="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">' + pendBills().length + '</span>' : '') + '</button>'
   ).join('');
 }
 
@@ -1026,7 +1356,15 @@ async function loadAll(){
   if(!LOGGED_IN_STAFF && CURRENT_USER_ROLE !== 'super_admin' && DATA.staff_roles.length === 0) await seedDefaultRoles();
   DATA.all_users = CURRENT_USER_ROLE === 'super_admin' ? await safeLoad('profiles') : [];
   DATA.audit_logs = await safeLoad('audit_logs');
+  if(CURRENT_USER_ROLE === 'super_admin'){
+    let fr = await supa.from('invoice_formats').select('*').order('created_at', { ascending: true });
+    INV_FORMATS_OK = !fr.error;
+    DATA.invoice_formats = fr.error ? [] : (fr.data || []);
+  } else if(!INV_CFG_LOADED){
+    await loadInvoiceFormat();
+  }
   if(LOGGED_IN_STAFF) refreshStaffTabs();
+  renderSide();
   renderView();
   ensureRealtime();
 }
@@ -1163,6 +1501,7 @@ function renderView(){
         let lim = PLAN_LIMITS[planNow];
         let limTxt = lim ? ' / ' + (lim === Infinity ? '∞' : lim) : '';
         let over = lim && totalUsers > lim ? '<div class="text-[10px] text-red-600 font-bold">Plan ki limit se zyada!</div>' : '';
+        let fmtCell = INV_FORMATS_OK ? '<td class="p-3"><select id="fmt_'+u.id+'" class="border rounded px-2 py-1 text-xs"><option value="">Default (Classic)</option>' + DATA.invoice_formats.map(f => '<option value="'+f.id+'"'+(String(u.invoice_format_id||'') === String(f.id) ? ' selected' : '')+'>'+esc(f.name)+'</option>').join('') + '</select></td>' : '<td class="p-3 text-[10px] text-amber-600">SQL chalayein</td>';
         return `
           <tr class="border-b hover:bg-slate-50">
             <td class="p-3 font-semibold">${esc(u.email)}<div class="text-xs text-slate-400">ID: ${String(u.id).substring(0,8)}...</div></td>
@@ -1170,6 +1509,7 @@ function renderView(){
             <td class="p-3"><span class="px-2.5 py-1 bg-slate-100 rounded text-xs font-bold">${esc(u.role || 'user')}</span></td>
             <td class="p-3"><select id="plan_${u.id}" class="border rounded px-2 py-1 text-xs">${planOpts}</select></td>
             <td class="p-3"><b>${totalUsers}</b>${limTxt}<div class="text-[10px] text-slate-400">1 owner + ${staffCnt} staff</div>${over}</td>
+            ${fmtCell}
             <td class="p-3"><input type="date" id="sub_${u.id}" value="${u.subscription_end || ''}" class="border rounded px-2 py-1 text-xs"></td>
             <td class="p-3 flex gap-2">
               <button onclick="updateUserStatus('${u.id}', 'active')" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700">Approve</button>
@@ -1178,16 +1518,18 @@ function renderView(){
             </td>
           </tr>
         `;
-      }).join('') || '<tr><td colspan=7 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
+      }).join('') || '<tr><td colspan=8 class="p-8 text-center text-slate-400">Koi account nahi mila</td></tr>';
 
       v.innerHTML = `
         <div class="mb-6"><h2 class="text-xl font-bold text-slate-800">Accounts Management</h2><p class="text-xs text-slate-500">Review registrations and manage account subscriptions</p></div>
         <div class="card p-5 mb-6"><input id="accountsSearchInput" class="input" placeholder="🔍 Search Account by Email..." value="${ACCOUNTS_SEARCH}" oninput="ACCOUNTS_SEARCH=this.value; renderView();"></div>
-        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Plan</th><th class="p-3 text-left">Users</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
+        <div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Account Email</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Role</th><th class="p-3 text-left">Plan</th><th class="p-3 text-left">Users</th><th class="p-3 text-left">Invoice Format</th><th class="p-3 text-left">Subscription Expiry</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
       `;
       setTimeout(()=>{ let el = document.getElementById('accountsSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
       return;
     }
+
+    if(curTab === 'admin_formats'){ renderFormatsView(v); return; }
 
     if(curTab === 'admin_plans'){
       v.innerHTML = `
@@ -1242,9 +1584,12 @@ function renderView(){
 
   // ==================== NORMAL USER DISTRIBUTION VIEWS ====================
   if(curTab==='dash'){
-    let total=DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
-    let today=DATA.bills.filter(b=>new Date(b.created_at).toDateString()===new Date().toDateString()).reduce((s,b)=>s+Number(b.total_amount||0),0);
+    let total=finBills().reduce((s,b)=>s+Number(b.total_amount||0),0);
+    let todayStr = localDateStr(new Date().toISOString());
+    let today=finBills().filter(b=>localDateStr(b.created_at)===todayStr).reduce((s,b)=>s+Number(b.total_amount||0),0);
     let totalCustRecv = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
+    let owingCount = DATA.customers.filter(c => getCustBal(c.id) > 0).length;
+    let pendCount = pendBills().length;
 
     let modeTotals = { Cash: 0, Bank: 0, EasyPaisa: 0, JazzCash: 0, Others: 0 };
     DATA.cust_ledgers.filter(l => l.type === 'payment').forEach(l => {
@@ -1254,7 +1599,7 @@ function renderView(){
       else modeTotals['Others'] += Number(l.credit || 0);
     });
 
-    let billsList = DATA.bills.slice(0,5).map(function(b){
+    let billsList = finBills().slice(0,5).map(function(b){
       let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
       let cName = custObj ? custObj.name : '-';
       return '<div class="flex justify-between p-2.5 bg-slate-50 rounded-xl text-sm"><span class="font-mono">'+b.invoice_no+'</span><span>'+cName+'</span><b>Rs '+Number(b.total_amount||0).toLocaleString()+'</b></div>';
@@ -1268,8 +1613,8 @@ function renderView(){
 
     v.innerHTML='<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">'+
       '<div class="card p-5 border-l-4 border-green-500"><div class="text-[11px] text-slate-500 uppercase">Total Sale</div><div class="text-2xl font-bold">Rs '+total.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500">Today Sale</div><div class="text-2xl font-bold">Rs '+today.toLocaleString()+'</div></div>'+
-      '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div></div>'+
+      '<div class="card p-5 border-l-4 border-blue-500"><div class="text-[11px] text-slate-500">Today Sale</div><div class="text-2xl font-bold">Rs '+today.toLocaleString()+'</div>'+(pendCount ? '<div class="text-[11px] mt-1 text-amber-600 font-semibold">⏳ '+pendCount+' order pending</div>' : '')+'</div>'+
+      '<div class="card p-5 border-l-4 border-amber-500"><div class="text-[11px] text-slate-500 uppercase">Total Customer Balance</div><div class="text-2xl font-bold text-red-600">Rs '+totalCustRecv.toLocaleString()+'</div><div class="text-[11px] text-slate-600 mt-1">👥 <b>'+owingCount+'</b> customers par baqi (kul '+DATA.customers.length+')</div></div>'+
       '<div class="card p-5 border-l-4 border-purple-500"><div class="text-[11px]">Vendors / Banks</div><div class="text-2xl font-bold">'+DATA.companies.length+' / '+DATA.banks.length+'</div></div>'+
     '</div>'+
     '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">Payment Collections Summary</h3><div class="grid grid-cols-2 md:grid-cols-5 gap-3">'+
@@ -1354,27 +1699,30 @@ function renderView(){
   }
 
   if(curTab==='reports'){
-    let totalSale = DATA.bills.reduce((s,b)=>s+Number(b.total_amount||0),0);
-    let totalCustBal = DATA.customers.reduce((sum, c) => sum + getCustBal(c.id), 0);
-    let totalVendorBal = DATA.companies.reduce((sum, c) => sum + getBal(c.id), 0);
-    
-    let collectionsList = DATA.banks.map(b => {
-      let bTotal = DATA.cust_ledgers.filter(l => String(l.bank_id) === String(b.id)).reduce((s,l)=>s+Number(l.credit||0),0);
-      return '<div class="flex justify-between p-3 bg-slate-50 rounded-xl border text-sm"><span class="font-semibold">'+b.name+' <span class="text-xs text-slate-400">('+b.account_no+')</span></span><b class="text-blue-600">Rs '+bTotal.toLocaleString()+'</b></div>';
-    }).join('') || '<div class="text-slate-400 text-sm">Koi bank account add nahi hai</div>';
-
-    v.innerHTML='<div class="space-y-6">'+
-      '<div class="grid md:grid-cols-3 gap-4">'+
-        '<div class="card p-5 border-l-4 border-green-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Sales Generated</div><div class="text-2xl font-bold text-green-700 mt-1">Rs '+totalSale.toLocaleString()+'</div></div>'+
-        '<div class="card p-5 border-l-4 border-amber-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Customer Receivables</div><div class="text-2xl font-bold text-red-600 mt-1">Rs '+totalCustBal.toLocaleString()+'</div></div>'+
-        '<div class="card p-5 border-l-4 border-purple-600"><div class="text-xs text-slate-500 uppercase font-bold">Total Vendor Balances</div><div class="text-2xl font-bold text-purple-700 mt-1">Rs '+totalVendorBal.toLocaleString()+'</div></div>'+
-      '</div>'+
-      buildReportFilters()+buildInvoiceItemReport()+buildCustomerSaleReport()+
-       '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">Bank & Wallet Wise Collections Report</h3><button onclick="pdfBankReport()" class="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div><div class="grid md:grid-cols-2 gap-3">'+collectionsList+'</div></div>'+
-      '<div class="card p-5"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">System Summary Report</h3><button onclick="pdfSummaryReport()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">📄 PDF (Naye Tab Mein)</button></div>'+
-        '<div class="text-sm text-slate-600 space-y-2"><p>• Total Customers Registered: <b>'+DATA.customers.length+'</b></p><p>• Total Vendors / Suppliers: <b>'+DATA.companies.length+'</b></p><p>• Total Inventory Items: <b>'+DATA.items.length+'</b></p><p>• Total Staff: <b>'+DATA.staff.length+'</b></p><p>• Total Invoices Issued: <b>'+DATA.bills.length+'</b></p></div>'+
-      '</div>'+
-    '</div>';
+    let custOpts = '<option value="">All Customers</option>' + DATA.customers.map(c => '<option value="' + c.id + '"' + (String(REP.cust) === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
+    let list = repInvoiceList();
+    let invRows = list.map(b => {
+      let c = DATA.customers.find(x => String(x.id) === String(b.customer_id));
+      return '<label class="flex items-center gap-2 p-2 border-b text-xs cursor-pointer hover:bg-slate-50"><input type="checkbox" ' + (REP.sel.includes(String(b.id)) ? 'checked ' : '') + 'onchange="toggleRepInv(\'' + b.id + '\', this.checked)"><span class="font-mono">' + esc(b.invoice_no) + '</span><span class="text-slate-500">' + localDateStr(b.created_at) + '</span><span class="font-semibold flex-1">' + esc(c ? c.name : '-') + '</span><b>Rs ' + Number(b.total_amount || 0).toLocaleString() + '</b></label>';
+    }).join('') || '<div class="p-4 text-center text-slate-400 text-sm">Koi invoice nahi mila</div>';
+    let tile = (icon, title, desc, fn) => '<button onclick="' + fn + '" class="card p-5 text-left hover:shadow-lg hover:border-slate-400 transition w-full"><div class="text-3xl mb-2">' + icon + '</div><div class="font-bold">' + title + '</div><div class="text-xs text-slate-500 mt-1">' + desc + '</div><div class="text-[11px] font-bold text-blue-600 mt-3">📄 Click karein: PDF naye tab mein khulegi</div></button>';
+    v.innerHTML = '<div class="space-y-6">' +
+      '<div class="card p-4"><div class="flex flex-wrap items-end gap-3">' +
+        '<div><label class="text-xs font-semibold text-slate-500">From Date</label><input type="date" class="input mt-1" value="' + REP.from + '" onchange="setRep(\'from\', this.value)"></div>' +
+        '<div><label class="text-xs font-semibold text-slate-500">To Date</label><input type="date" class="input mt-1" value="' + REP.to + '" onchange="setRep(\'to\', this.value)"></div>' +
+        '<div class="min-w-[200px]"><label class="text-xs font-semibold text-slate-500">Customer (Item Report ke liye)</label><select class="input mt-1" onchange="setRep(\'cust\', this.value)">' + custOpts + '</select></div>' +
+        '<button onclick="clearRepFilters()" class="border px-4 py-2.5 rounded-xl text-sm">Clear Filters</button>' +
+      '</div>' +
+      '<details class="mt-3"><summary class="text-xs font-bold text-slate-600 cursor-pointer">Khaas invoices select karein (optional) - Item Report ke liye</summary>' +
+        '<div class="flex gap-2 my-2"><button onclick="repSelectAll(true)" class="border px-3 py-1 rounded-lg text-xs">Select All</button><button onclick="repSelectAll(false)" class="border px-3 py-1 rounded-lg text-xs">Clear</button></div>' +
+        '<div class="border rounded-xl max-h-56 overflow-auto bg-white">' + invRows + '</div>' +
+        '<div class="text-[11px] text-slate-500 mt-1">Koi select na ho to filter ki sab invoices count hongi.</div></details></div>' +
+      '<div class="grid md:grid-cols-2 gap-4">' +
+        tile('📦', 'Invoice-wise Item Report (Ctn / Pcs)', 'Selected invoices ka item-wise total: kitne Ctn aur kitne Pcs.', 'pdfItemReport()') +
+        tile('👥', 'Customer-wise Sale Report', 'Har customer ki kul sale, invoices aur pieces.', 'pdfCustomerSale()') +
+        tile('🏦', 'Bank & Wallet Collections', 'Har bank / wallet mein kitni wasooli hui.', 'pdfBankReport()') +
+        tile('📊', 'System Summary Report', 'Poore system ka khulasa: sale, balances, customers, items.', 'pdfSummaryReport()') +
+      '</div></div>';
     return;
   }
 
@@ -1392,7 +1740,7 @@ function renderView(){
     let compOptions = DATA.companies.map(c => '<option value="'+c.id+'">'+c.name+'</option>').join('');
     let itemOptions = DATA.items.map(i => {
       let lastCost = getLastPurchaseRate(i.id) || i.purchase_cost || 0;
-      return '<option value="'+i.id+'" data-cost="'+lastCost+'">'+i.name+' (Last Cost: Rs '+lastCost+')</option>';
+      return '<option value="'+i.id+'" data-cost="'+lastCost+'">'+i.name+(i.company ? ' - '+i.company : '')+' (Last Cost: Rs '+lastCost+')</option>';
     }).join('');
     let purchaseRows = PURCHASE_ITEMS.map((item, idx) => 
       '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.rate+'</td><td class="p-3">'+qtyText(item)+'</td><td class="p-3 font-bold">Rs '+(item.rate * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removePurchaseItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
@@ -1456,19 +1804,19 @@ function renderView(){
       let q = ITEM_SEARCH.toLowerCase();
       let comp = DATA.companies.find(x => x.id === it.company_id);
       let cName = comp ? comp.name : '';
-      return !q || (it.name||'').toLowerCase().includes(q) || cName.toLowerCase().includes(q) || (it.category||'').toLowerCase().includes(q);
+      return !q || (it.name||'').toLowerCase().includes(q) || cName.toLowerCase().includes(q) || (it.category||'').toLowerCase().includes(q) || (it.company||'').toLowerCase().includes(q);
     });
 
     let itemRows = filteredItems.map(it => {
       let comp=DATA.companies.find(x=>x.id===it.company_id);
       let lastPur = getLastPurchaseRate(it.id);
-      return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'<div class="text-[10px] text-slate-500">Last Pur Cost: Rs '+lastPur+'</div></td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 text-xs">'+fmtCtnPcs(it.current_stock, it.ctn_pcs)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
+      return '<tr class="border-b"><td class="p-3 font-semibold">'+it.name+'<div class="text-[10px] text-slate-500">Last Pur Cost: Rs '+lastPur+'</div></td><td class="p-3 text-xs font-semibold">'+esc(it.company||'-')+'</td><td class="p-3 text-xs">'+(comp?.name||'-')+'</td><td class="p-3 font-bold">Rs '+(it.sale_price||it.sale_cost||0)+'</td><td class="p-3 text-xs">'+fmtCtnPcs(it.current_stock, it.ctn_pcs)+'</td><td class="p-3 flex gap-1"><button onclick="editItem(\''+it.id+'\')" class="px-2 py-1 bg-blue-600 text-white rounded text-xs">✏️</button><button onclick="delItem(\''+it.id+'\')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">X</button></td></tr>';
     }).join('');
 
-    v.innerHTML='<div class="card p-5 mb-6"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price (per Pcs) *"><input id="iStock" type="number" class="input" placeholder="Stock (Pcs)"><input id="iCtn" type="number" min="0" class="input" placeholder="Ctn Size (1 Ctn = kitne Pcs)"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
+    v.innerHTML='<div class="card p-5 mb-6"><h3 id="itemTitle" class="font-bold mb-3">Add Item</h3><div class="grid md:grid-cols-3 gap-3"><input id="iName" class="input" placeholder="Item Name *"><select id="iComp" class="input"><option value="">Select Vendor</option>'+compOptions+'</select><input id="iCompany" list="companyList" class="input" placeholder="Company (Brand / Manufacturer)">'+companyListHtml()+'<input id="iCat" class="input" placeholder="Category"><input id="iPur" type="number" class="input" placeholder="Purchase Cost"><input id="iSale" type="number" class="input" placeholder="Sale Price (per Pcs) *"><input id="iStock" type="number" class="input" placeholder="Stock (Pcs)"><input id="iCtn" type="number" min="0" class="input" placeholder="Ctn Size (1 Ctn = kitne Pcs)"></div><div class="flex gap-2 mt-4"><button id="itemBtn" onclick="saveItem()" class="btn-green flex-1">Save Item</button><button id="itemCancel" onclick="cancelItem()" class="hidden border px-5 rounded-xl">Cancel</button></div></div>'+
     buildImportCard('items','Items')+
     '<div class="card p-5 mb-6"><input id="itemSearchInput" class="input" placeholder="🔍 Search Item by Name, Vendor, or Category..." value="'+ITEM_SEARCH+'" oninput="ITEM_SEARCH=this.value; renderView();"></div>'+
-    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Vendor</th><th class="p-3">Sale / Pcs</th><th class="p-3">Stock</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
+    '<div class="card p-0 overflow-auto"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item</th><th class="p-3">Company</th><th class="p-3">Vendor</th><th class="p-3">Sale / Pcs</th><th class="p-3">Stock</th><th class="p-3">Action</th></tr></thead><tbody>'+itemRows+'</tbody></table></div>';
     setTimeout(()=>{ let el = document.getElementById('itemSearchInput'); if(el){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; } }, 50);
     return;
   }
@@ -1543,10 +1891,12 @@ function renderView(){
     return;
   }
 
+  if(curTab==='orders'){ renderOrdersView(v); return; }
+
   if(curTab==='history'){
-    let filteredBills = DATA.bills.filter(b => {
+    let filteredBills = finBills().filter(b => {
       let matchInv = !HIST_FILTERS.inv || (b.invoice_no||'').toLowerCase().includes(HIST_FILTERS.inv.toLowerCase());
-      let matchDate = !HIST_FILTERS.date || (b.created_at && b.created_at.startsWith(HIST_FILTERS.date));
+      let matchDate = !HIST_FILTERS.date || localDateStr(b.created_at) === HIST_FILTERS.date;
       let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
       let cName = custObj ? custObj.name : '';
       let matchCust = !HIST_FILTERS.cust || cName.toLowerCase().includes(HIST_FILTERS.cust.toLowerCase());
@@ -1566,9 +1916,9 @@ function renderView(){
       return '<tr class="border-b hover:bg-slate-50">'+
         '<td class="p-3 text-center"><input type="checkbox" class="inv-checkbox" value="'+b.id+'"></td>'+
         '<td class="p-3 font-mono text-xs">'+b.invoice_no+'</td>'+
-        '<td class="p-3 text-xs">'+new Date(b.created_at).toLocaleDateString()+'</td>'+
+        '<td class="p-3 text-xs">'+billDateStr(b)+'</td>'+
         '<td class="p-3 text-xs font-semibold text-indigo-700">'+esc(sName)+'</td>'+
-        '<td class="p-3 font-semibold">'+cName+'</td>'+
+        '<td class="p-3 font-semibold">'+cName+'<div class="text-[10px] text-slate-400">🕒 '+billTime(b)+'</div></td>'+
         '<td class="p-3 text-xs text-slate-600">'+cArea+'</td>'+
         '<td class="p-3">'+bType+'</td>'+
         '<td class="p-3 font-bold">Rs '+Number(b.total_amount||0).toLocaleString()+'</td>'+
@@ -1645,7 +1995,7 @@ function renderView(){
     
     let salesmanOptions = buildSalesmanOptions();
 
-    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+'</option>').join('');
+    let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+(i.company ? ' - '+i.company : '')+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
       '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+qtyText(item)+'</td><td class="p-3 font-bold">Rs '+(item.price * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
     ).join('');
@@ -1676,16 +2026,20 @@ function renderView(){
         '</div>'+
         '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
           '<div class="flex justify-between text-slate-600"><span>Sub Total:</span><b id="lblSubTotal">Rs 0</b></div>'+
+          '<div class="flex justify-between items-center text-slate-600"><span>Discount: <select id="saleDiscType" onchange="calculateSaleTotals()" class="border rounded px-1 py-0.5 text-xs"><option value="amount">Rs</option><option value="percent">%</option></select> <input id="saleDiscVal" type="number" min="0" placeholder="0" oninput="calculateSaleTotals()" class="w-20 border rounded px-1 py-0.5 text-center text-xs font-bold"></span><b id="lblDiscount" class="text-red-600">- Rs 0</b></div>'+
           '<div id="rowGst" class="flex justify-between items-center text-slate-600"><span>GST (<input id="gstRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblGst">Rs 0</b></div>'+
           '<div id="rowAddTax" class="flex justify-between items-center text-slate-600"><span>Additional Tax (<input id="addTaxRate" type="number" disabled class="w-14 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblAddTax">Rs 0</b></div>'+
           '<div id="rowNonReg" class="flex justify-between items-center text-amber-700 bg-amber-50 p-1.5 rounded"><span>Non-Registered Tax (<input id="nonRegTaxRate" type="number" disabled class="w-16 border rounded px-1 text-center text-xs font-bold bg-slate-100"> %):</span><b id="lblNonRegTax">Rs 0</b></div>'+
+          (!LOGGED_IN_STAFF && !EDIT_BILL_ID ? '<label class="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 p-2 rounded-lg cursor-pointer"><input type="checkbox" id="saleAsOrder" onchange="SALE_AS_ORDER=this.checked"> ⏳ Is bill ko Order ke taur par rakhein (supply baad mein hogi)</label>' : '')+
+          (LOGGED_IN_STAFF && !EDIT_BILL_ID ? '<div class="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg">⏳ Aap ka bill pehle Orders window mein jayega. Owner supply ke baad finalize karega.</div>' : '')+
           '<div class="border-t pt-2 flex justify-between items-center">'+
             '<div><div class="text-xs text-slate-500 font-bold uppercase">Grand Total</div><div class="text-2xl font-bold text-green-600" id="lblGrandTotal">Rs 0</div></div>'+
-            '<button onclick="saveFinalBill()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">'+(EDIT_BILL_ID ? 'Update Bill' : 'Complete & Save Bill')+'</button>'+
+            '<button onclick="saveFinalBill()" class="btn-green !w-auto px-8 py-3 text-base shadow-lg">'+(EDIT_BILL_ID ? 'Update Bill' : (LOGGED_IN_STAFF ? 'Submit Order' : 'Complete & Save Bill'))+'</button>'+
           '</div>'+
         '</div>'+
       '</div>'+
     '</div>';
+    restoreSaleDisc();
     setTimeout(()=>{
       if(!SELECTED_SALESMAN_ID && LOGGED_IN_STAFF) SELECTED_SALESMAN_ID = String(LOGGED_IN_STAFF.id);
       if(SELECTED_SALESMAN_ID && document.getElementById('saleSalesman')){
@@ -1803,9 +2157,11 @@ async function saveSubDate(userId){
   let planEl = document.getElementById('plan_' + userId);
   let upd = { subscription_end: subDate || null };
   if(planEl) upd.plan = planEl.value;
+  let fmtEl = document.getElementById('fmt_' + userId);
+  if(fmtEl) upd.invoice_format_id = fmtEl.value || null;
   let { error } = await supa.from('profiles').update(upd).eq('id', userId);
   if(error){ alert(error.message); return; }
-  alert('Plan aur subscription date save ho gayi!');
+  alert('Plan, invoice format aur subscription date save ho gayi!');
   loadAll();
 }
 
@@ -1956,46 +2312,9 @@ async function delBank(id){
   loadAll();
 }
 
-function printInvoice(id) {
-  let b = DATA.bills.find(x => String(x.id) === String(id));
-  if(!b) return alert('Bill nahi mila!');
-  let items = [];
-  try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e) { items = []; }
-  let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-  let salObj = findSalesman(b.salesman_id);
-  let cName = custObj?.name || 'Walk-in Customer';
-  let cArea = custObj?.area || '-';
-  let sName = salObj?.name || '-';
-  let printWindow = window.open('', '_blank', 'width=800,height=600');
-  printWindow.document.write('<html><head><title>Invoice - ' + b.invoice_no + '</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.header{text-align:center;margin-bottom:20px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:20px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}th{background-color:#f2f2f2}.total{text-align:right;font-size:16px;font-weight:bold}</style></head><body><div class="header"><h2>QNH ENTERPRISES</h2><p>Distribution System - Invoice</p></div><div class="invoice-info"><div><p><b>Invoice No:</b> ' + b.invoice_no + '</p><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p><p><b>Type:</b> ' + (b.bill_type || 'simple').toUpperCase() + '</p></div></div><table><thead><tr><th>Item Name</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + qtyText(i) + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Grand Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
-  printWindow.document.close();
-}
-
 function toggleSelectAllInvoices(master) {
   let checkboxes = document.querySelectorAll('.inv-checkbox');
   checkboxes.forEach(cb => cb.checked = master.checked);
-}
-
-function printSelectedInvoices() {
-  let checked = document.querySelectorAll('.inv-checkbox:checked');
-  if(checked.length === 0) return alert('Kam az kam ek bill select karein!');
-  let selectedIds = Array.from(checked).map(cb => cb.value);
-  let selectedBills = DATA.bills.filter(b => selectedIds.includes(String(b.id)));
-  let printWindow = window.open('', '_blank', 'width=800,height=600');
-  let htmlContent = '<html><head><title>Bulk Print Invoices</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#333}.invoice-page{page-break-after:always;margin-bottom:40px}.header{text-align:center;margin-bottom:15px}.invoice-info{display:flex;justify-content:space-between;margin-bottom:15px;font-size:14px}table{width:100%;border-collapse:collapse;margin-bottom:15px}th,td{border:1px solid #ddd;padding:6px;text-align:left;font-size:12px}th{background-color:#f2f2f2}.total{text-align:right;font-size:14px;font-weight:bold}</style></head><body>';
-  selectedBills.forEach(b => {
-    let items = [];
-    try { items = typeof b.items === 'string' ? JSON.parse(b.items) : (b.items || []); } catch(e){}
-    let custObj = DATA.customers.find(x => String(x.id) === String(b.customer_id));
-    let salObj = findSalesman(b.salesman_id);
-    let cName = custObj?.name || 'Customer';
-    let cArea = custObj?.area || '';
-    let sName = salObj?.name || '';
-    htmlContent += '<div class="invoice-page"><div class="header"><h2>QNH ENTERPRISES</h2><p>Invoice: ' + b.invoice_no + '</p></div><div class="invoice-info"><div><p><b>Customer:</b> ' + cName + ' (' + cArea + ')</p><p><b>Salesman:</b> ' + sName + '</p></div><div><p><b>Date:</b> ' + new Date(b.created_at).toLocaleDateString() + '</p></div></div><table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + i.name + '</td><td>Rs ' + i.price + '</td><td>' + qtyText(i) + '</td><td>Rs ' + (i.price * i.qty) + '</td></tr>').join('') + '</tbody></table><div class="total">Total: Rs ' + Number(b.total_amount || 0).toLocaleString() + '</div><hr style="margin-top:30px; border: 1px dashed #ccc;"></div>';
-  });
-  htmlContent += '<script>window.onload=function(){window.print();}<\/script></body></html>';
-  printWindow.document.write(htmlContent);
-  printWindow.document.close();
 }
 
 function onSaleItemChange(){
@@ -2151,15 +2470,24 @@ function calculateSaleTotals(){
   let billType = billTypeEl.value;
   let custId = custEl.value;
   let selectedCust = DATA.customers.find(c => String(c.id) === String(custId));
+
+  // Discount
+  let dEl = document.getElementById('saleDiscType'), dvEl = document.getElementById('saleDiscVal');
+  let discountType = dEl ? dEl.value : 'amount';
+  let discountValue = Math.max(0, Number(dvEl ? dvEl.value : 0) || 0);
+  SALE_DISC = { type: discountType, val: dvEl ? dvEl.value : '' };
+  let discountAmount = discountType === 'percent' ? subTotal * Math.min(discountValue, 100) / 100 : Math.min(discountValue, subTotal);
+  let taxable = subTotal - discountAmount;
+
   let gstAmount = 0, addTaxAmount = 0, nonRegTaxAmount = 0;
   let isReg = selectedCust ? (selectedCust.is_registered === true || String(selectedCust.is_registered) === 'true') : true;
   let gstRate = Number(document.getElementById('gstRate')?.value || 18);
   let addTaxRate = Number(document.getElementById('addTaxRate')?.value || 3);
   let nonRegTaxRate = Number(document.getElementById('nonRegTaxRate')?.value || 0.25);
   if (billType === 'tax') {
-    gstAmount = (subTotal * gstRate) / 100;
-    addTaxAmount = (subTotal * addTaxRate) / 100;
-    if (selectedCust && !isReg) nonRegTaxAmount = (subTotal * nonRegTaxRate) / 100;
+    gstAmount = (taxable * gstRate) / 100;
+    addTaxAmount = (taxable * addTaxRate) / 100;
+    if (selectedCust && !isReg) nonRegTaxAmount = (taxable * nonRegTaxRate) / 100;
     if(document.getElementById('rowGst')) document.getElementById('rowGst').style.display = 'flex';
     if(document.getElementById('rowAddTax')) document.getElementById('rowAddTax').style.display = 'flex';
     if(document.getElementById('rowNonReg')) document.getElementById('rowNonReg').style.display = !isReg ? 'flex' : 'none';
@@ -2168,13 +2496,14 @@ function calculateSaleTotals(){
     if(document.getElementById('rowAddTax')) document.getElementById('rowAddTax').style.display = 'none';
     if(document.getElementById('rowNonReg')) document.getElementById('rowNonReg').style.display = 'none';
   }
-  let grandTotal = subTotal + gstAmount + addTaxAmount + nonRegTaxAmount;
+  let grandTotal = taxable + gstAmount + addTaxAmount + nonRegTaxAmount;
   if(document.getElementById('lblSubTotal')) document.getElementById('lblSubTotal').innerText = 'Rs ' + Math.round(subTotal).toLocaleString();
+  if(document.getElementById('lblDiscount')) document.getElementById('lblDiscount').innerText = '- Rs ' + Math.round(discountAmount).toLocaleString();
   if(document.getElementById('lblGst')) document.getElementById('lblGst').innerText = 'Rs ' + Math.round(gstAmount).toLocaleString();
   if(document.getElementById('lblAddTax')) document.getElementById('lblAddTax').innerText = 'Rs ' + Math.round(addTaxAmount).toLocaleString();
   if(document.getElementById('lblNonRegTax')) document.getElementById('lblNonRegTax').innerText = 'Rs ' + Math.round(nonRegTaxAmount).toLocaleString();
   if(document.getElementById('lblGrandTotal')) document.getElementById('lblGrandTotal').innerText = 'Rs ' + Math.round(grandTotal).toLocaleString();
-  return { subTotal, gstAmount, addTaxAmount, nonRegTaxAmount, grandTotal, billType, custId };
+  return { subTotal, discountAmount, discountType, discountValue, taxable, gstAmount, addTaxAmount, nonRegTaxAmount, grandTotal, billType, custId };
 }
 
 async function getNextInvoiceNumber(billType) {
@@ -2194,6 +2523,7 @@ function editBill(id){
   if(!b) return alert('Bill nahi mila!');
   EDIT_BILL_ID = id;
   SELECTED_SALESMAN_ID = b.salesman_id || '';
+  SALE_DISC = { type: b.discount_type || 'amount', val: Number(b.discount_value || 0) || '' };
   if(b.items) {
     try {
       SALE_ITEMS = typeof b.items === 'string' ? JSON.parse(b.items) : b.items;
@@ -2215,61 +2545,67 @@ function editBill(id){
 function cancelBillEdit(){
   EDIT_BILL_ID = null;
   SALE_ITEMS = [];
+  SALE_DISC = { type: 'amount', val: '' };
   openTab('sale');
 }
 
 async function saveFinalBill(){
   let salesmanId = document.getElementById('saleSalesman')?.value;
   if(!salesmanId) return alert('Kripya Salesman select karein (Mandatory hai)!');
-  
   let totals = calculateSaleTotals();
   if(!totals) return;
   if(!totals.custId) return alert('Pehle Customer select karein!');
   if(SALE_ITEMS.length === 0) return alert('Bill mein kam se kam 1 item add karein!');
-  
-  let invNo;
-  if(EDIT_BILL_ID) {
-    let existingBill = DATA.bills.find(b => String(b.id) === String(EDIT_BILL_ID));
-    invNo = existingBill ? existingBill.invoice_no : await getNextInvoiceNumber(totals.billType);
-  } else {
-    invNo = await getNextInvoiceNumber(totals.billType);
-  }
-  let uid = await getUserId();
+  if(SAVING_BILL) return;
+  SAVING_BILL = true;
+  try { await saveFinalBillInner(salesmanId, totals); } finally { SAVING_BILL = false; }
+}
+
+async function saveFinalBillInner(salesmanId, totals){
   let oldBill = EDIT_BILL_ID ? DATA.bills.find(b => String(b.id) === String(EDIT_BILL_ID)) : null;
+  let invNo = oldBill ? oldBill.invoice_no : await getNextInvoiceNumber(totals.billType);
+  let uid = await getUserId();
+  // Staff ka bill pehle Orders window mein jata hai. Owner chahe to checkbox se order bana sakta hai.
+  let asOrder = !!LOGGED_IN_STAFF || SALE_AS_ORDER === true;
+  let pendingNow = oldBill ? (oldBill.is_finalized === false) : asOrder;
   let oldItems = oldBill ? parseBillItems(oldBill) : [];
-  let itemsToSave = SALE_ITEMS.map(i => Object.assign({}, i, { sd: 1 }));
-  let payload = { user_id: uid, customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo, total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(itemsToSave) };
-  let res;
-  if(EDIT_BILL_ID) {
-    res = await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID);
-  } else {
-    res = await supa.from('bills').insert([payload]);
-  }
+  let itemsToSave = SALE_ITEMS.map(i => { let c = Object.assign({}, i); if(pendingNow) delete c.sd; else c.sd = 1; return c; });
+  let payload = {
+    user_id: uid, customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo,
+    total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(itemsToSave),
+    sub_total: totals.subTotal, discount: totals.discountAmount, discount_type: totals.discountType, discount_value: totals.discountValue
+  };
+  if(!oldBill) payload.is_finalized = !pendingNow;
+
+  let res = oldBill ? await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : await supa.from('bills').insert([payload]);
   if(res.error){
+    if(/is_finalized|finalized_at|sub_total|discount/i.test(res.error.message)){
+      alert('Pehle Supabase mein naya SQL (orders_formats.sql) chalayein, phir bill dobara save karein.\n\n(' + res.error.message + ')');
+      return;
+    }
     delete payload.items;
-    let fallback = EDIT_BILL_ID ? await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : await supa.from('bills').insert([payload]);
+    let fallback = oldBill ? await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : await supa.from('bills').insert([payload]);
     if(fallback.error){ alert('Bill save karne mein error: ' + fallback.error.message); return; }
   }
 
-  await applyStockChanges(oldItems, itemsToSave);
-  let ledgerDate = (oldBill && oldBill.created_at) ? String(oldBill.created_at).slice(0,10) : new Date().toISOString().split('T')[0];
-  if(EDIT_BILL_ID){
-    await supa.from('customer_ledger').delete().eq('user_id', uid).eq('bill_no', invNo).eq('type', 'sale');
+  if(!pendingNow){
+    await applyStockChanges(oldItems, itemsToSave);
+    let ledgerDate = (oldBill && oldBill.created_at) ? localDateStr(oldBill.created_at) : new Date().toISOString().split('T')[0];
+    if(oldBill){
+      await supa.from('customer_ledger').delete().eq('user_id', uid).eq('bill_no', invNo).eq('type', 'sale');
+    }
+    await supa.from('customer_ledger').insert([{
+      user_id: uid, customer_id: totals.custId, date: ledgerDate, type: 'sale', bill_no: invNo,
+      description: 'Sale Bill Total: Rs ' + totals.grandTotal, debit: totals.grandTotal, credit: 0
+    }]);
   }
-  await supa.from('customer_ledger').insert([{
-    user_id: uid,
-    customer_id: totals.custId,
-    date: ledgerDate,
-    type: 'sale',
-    bill_no: invNo,
-    description: 'Sale Bill Total: Rs ' + totals.grandTotal,
-    debit: totals.grandTotal,
-    credit: 0
-  }]);
 
-  alert((EDIT_BILL_ID ? 'Bill Update' : 'Bill Save') + ' ho gaya hai! Invoice Number: ' + invNo);
+  if(pendingNow) alert((oldBill ? 'Order Update' : 'Order Submit') + ' ho gaya hai! Invoice Number: ' + invNo + '\n(Ye Orders window mein hai, supply ke baad finalize hoga.)');
+  else alert((oldBill ? 'Bill Update' : 'Bill Save') + ' ho gaya hai! Invoice Number: ' + invNo);
   SALE_ITEMS = [];
   EDIT_BILL_ID = null;
+  SALE_DISC = { type: 'amount', val: '' };
+  SALE_AS_ORDER = false;
   await loadAll();
   openTab('sale');
 }
@@ -2421,6 +2757,7 @@ function editItem(id){
   document.getElementById('iSale').value = it.sale_price || it.sale_cost || 0;
   document.getElementById('iStock').value = it.current_stock || 0;
   document.getElementById('iCtn').value = it.ctn_pcs || '';
+  document.getElementById('iCompany').value = it.company || '';
   document.getElementById('itemTitle').innerText = 'Edit Item';
   document.getElementById('itemBtn').innerText = 'Update Item';
   document.getElementById('itemCancel').classList.remove('hidden');
@@ -2429,7 +2766,7 @@ function editItem(id){
 
 function cancelItem(){
   EDIT_ITEM_ID = null;
-  ['iName', 'iPur', 'iSale', 'iStock', 'iCat', 'iCtn'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  ['iName', 'iPur', 'iSale', 'iStock', 'iCat', 'iCtn', 'iCompany'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   document.getElementById('iComp').value = '';
   document.getElementById('itemTitle').innerText = 'Add Item';
   document.getElementById('itemBtn').innerText = 'Save Item';
@@ -2440,7 +2777,7 @@ async function saveItem(){
   let n = document.getElementById('iName').value;
   if(!n) return alert('Name');
   let uid = await getUserId();
-  let payload = { user_id: uid, name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0), ctn_pcs: Number(document.getElementById('iCtn').value || 0) };
+  let payload = { user_id: uid, name: n, company_id: document.getElementById('iComp').value || null, purchase_cost: Number(document.getElementById('iPur').value || 0), sale_price: Number(document.getElementById('iSale').value || 0), sale_cost: Number(document.getElementById('iSale').value || 0), current_stock: Number(document.getElementById('iStock').value || 0), ctn_pcs: Number(document.getElementById('iCtn').value || 0), company: (document.getElementById('iCompany').value || '').trim() };
   if(EDIT_ITEM_ID){
     let { error } = await supa.from('items').update(payload).eq('id', EDIT_ITEM_ID);
     if(error){ alert(error.message); return; }
