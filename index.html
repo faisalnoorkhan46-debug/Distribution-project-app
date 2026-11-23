@@ -754,7 +754,8 @@ const DEFAULT_INV_CFG = {
   layout: 'classic', paper: 'A4', accent: '#0f172a', fontSize: 13,
   company: 'QNH ENTERPRISES', tagline: 'Distribution System', address: '', phone: '', ntn: '', strn: '',
   title: 'INVOICE', footer: '', terms: '', sign1: 'Received By', sign2: 'Authorized Signature',
-  showSr: true, showCtn: true, showRate: true, showSalesman: true, showArea: true, showTime: true, showDiscount: true
+  showSr: true, showCtn: true, showRate: true, showSalesman: true, showArea: true, showTime: true, showDiscount: true,
+  showScheme: false, showLineDisc: false, showAdvTax: false, minRows: 0, dateFormat: 'locale', extraLabel: ''
 };
 let INV_CFG = Object.assign({}, DEFAULT_INV_CFG), INV_CFG_LOADED = false, INV_FORMATS_OK = false;
 
@@ -781,12 +782,14 @@ function invoiceCss(cfg){
   let lay;
   if(L === 'modern') lay = '.hd{background:' + a + ';color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:6px}.hd h2{margin:0;font-size:' + (fs + 7) + 'px}.hd p{margin:2px 0;opacity:.85;font-size:' + (fs - 2) + 'px}.ttl{font-size:' + (fs + 9) + 'px;font-weight:bold;letter-spacing:3px}th{background:' + a + ';color:#fff}td{border-bottom:1px solid #e5e7eb}tbody tr:nth-child(even){background:#f8fafc}';
   else if(L === 'compact') lay = '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ' + a + ';padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 4) + 'px}.hd p{margin:1px 0;color:#555;font-size:' + (fs - 2) + 'px}.ttl{font-weight:bold;color:' + a + ';text-align:right}th{background:#eee;border:1px solid #ccc}td{border:1px solid #ddd}';
+  else if(L === 'grid') lay = '.gh{text-align:center;margin-bottom:6px}.gh h2{margin:0;font-size:' + (fs + 9) + 'px;letter-spacing:.5px}.gh p{margin:2px 0;font-size:' + (fs - 1) + 'px}.gm{width:100%;border-collapse:collapse;margin:6px 0 4px}.gm td{padding:2px 4px;font-size:' + fs + 'px;vertical-align:top}.gl{font-weight:600;white-space:nowrap;width:24%}.gv{width:46%}.gi{text-align:center;vertical-align:top}.gil{font-weight:600;text-decoration:underline}.gin{font-size:' + (fs + 3) + 'px;font-weight:bold;text-decoration:underline;margin-top:4px}.gt{width:100%;border-collapse:collapse;margin:6px 0}.gt th,.gt td{border:1px solid #000;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:600;text-align:center}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt th.box{border:2px solid #000}.gt tr.tot td{font-weight:600}';
   else if(th) lay = '.hd{text-align:center;border-bottom:1px dashed #000;padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 3) + 'px}.hd p{margin:1px 0;font-size:' + (fs - 2) + 'px}.ttl{text-align:center;font-weight:bold;margin:4px 0}th,td{padding:2px;border-bottom:1px dashed #999}th{border-top:1px dashed #000}';
   else lay = '.hd{text-align:center;margin-bottom:8px}.hd h2{margin:0;font-size:' + (fs + 9) + 'px}.hd p{margin:2px 0;color:#555}.ttl{text-align:center;font-weight:bold;letter-spacing:2px;border-top:2px solid ' + a + ';border-bottom:2px solid ' + a + ';padding:4px 0;margin:8px 0}th{background:#f2f2f2}th,td{border:1px solid #ddd}';
   return paper + base + lay;
 }
 
 function buildInvoicePage(b, cfg, cust, sal){
+  if(cfg.layout === 'grid') return buildGridInvoicePage(b, cfg, cust, sal);
   let items = parseBillItems(b);
   let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
   let disc = Number(b.discount || 0);
@@ -799,7 +802,7 @@ function buildInvoicePage(b, cfg, cust, sal){
   else if(L === 'compact') head = '<div class="hd"><div><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '<div style="font-weight:normal;color:#444">' + esc(b.invoice_no) + '</div></div></div>';
   else head = '<div class="hd"><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div>';
   let metaL = '<p><b>Invoice No:</b> ' + esc(b.invoice_no) + '</p><p><b>Customer:</b> ' + esc(cust ? cust.name : 'Walk-in Customer') + (cfg.showArea && cust && cust.area ? ' (' + esc(cust.area) + ')' : '') + '</p>' + (cfg.showSalesman ? '<p><b>Booker:</b> ' + esc(sal ? sal.name : '-') + '</p>' : '');
-  let metaR = '<p><b>Date:</b> ' + billDateStr(b) + '</p>' + (cfg.showTime ? '<p><b>Time:</b> ' + billTime(b) + '</p>' : '') + '<p><b>Type:</b> ' + esc((b.bill_type || 'simple').toUpperCase()) + '</p>';
+  let metaR = '<p><b>Date:</b> ' + fmtBillDate(b, cfg.dateFormat) + '</p>' + (cfg.showTime ? '<p><b>Time:</b> ' + billTime(b) + '</p>' : '') + '<p><b>Type:</b> ' + esc((b.bill_type || 'simple').toUpperCase()) + '</p>';
   let thead = '<tr>' + (cfg.showSr ? '<th class="c">#</th>' : '') + '<th>Item</th>' + (cfg.showRate ? '<th class="r">Rate</th>' : '') + '<th class="c">Qty</th><th class="r">Amount</th></tr>';
   let body = items.map((i, idx) => '<tr>' + (cfg.showSr ? '<td class="c">' + (idx + 1) + '</td>' : '') + '<td>' + esc(i.name) + '</td>' + (cfg.showRate ? '<td class="r">' + Number(i.price || 0).toLocaleString() + '</td>' : '') + '<td class="c">' + (cfg.showCtn ? esc(qtyText(i)) : Number(i.qty || 0)) + '</td><td class="r">' + Math.round(Number(i.price || 0) * Number(i.qty || 0)).toLocaleString() + '</td></tr>').join('');
   let showLines = cfg.showDiscount && (disc > 0 || tax > 0.5);
@@ -808,7 +811,7 @@ function buildInvoicePage(b, cfg, cust, sal){
     (cfg.showDiscount && disc > 0 ? '<div><span>Discount</span><span>- Rs ' + Math.round(disc).toLocaleString() + '</span></div>' : '') +
     (cfg.showDiscount && tax > 0.5 ? '<div><span>Tax</span><span>Rs ' + Math.round(tax).toLocaleString() + '</span></div>' : '') +
     '<div class="g"><span>Grand Total</span><span>Rs ' + Math.round(total).toLocaleString() + '</span></div></div>';
-  let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + (L !== 'thermal' ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
+  let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + ((L !== 'thermal' && (cfg.sign1 || cfg.sign2)) ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
   return '<div class="inv">' + head + '<div class="meta"><div>' + metaL + '</div><div>' + metaR + '</div></div><table><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + totals + foot + '</div>';
 }
 function wrapInvoiceDoc(pagesHtml, cfg, doPrint){
@@ -846,18 +849,19 @@ const FMT_FIELDS = [
 const FMT_FLAGS = [
   { k: 'showSr', label: 'Serial No (#) column' }, { k: 'showCtn', label: 'Qty mein Ctn + Pcs' }, { k: 'showRate', label: 'Rate column' },
   { k: 'showSalesman', label: 'Booker ka naam' }, { k: 'showArea', label: 'Customer ka Area' }, { k: 'showTime', label: 'Order ka Time' },
-  { k: 'showDiscount', label: 'Discount / Tax lines' }
+  { k: 'showDiscount', label: 'Discount / Tax lines' },
+  { k: 'showScheme', label: '(Grid) SCH column' }, { k: 'showLineDisc', label: '(Grid) DISC% column' }, { k: 'showAdvTax', label: '(Grid) ADV T% + VALUE' }
 ];
 let FMT_FORM = { name: '', cfg: Object.assign({}, DEFAULT_INV_CFG) };
 let EDIT_FMT_ID = null;
 
 function sampleBill(){
-  return { invoice_no: 'INV-1001', created_at: new Date().toISOString(), bill_type: 'tax', sub_total: 2070, discount: 70, total_amount: 2360,
+  return { invoice_no: 'INV-1001', created_at: new Date().toISOString(), bill_type: 'tax', sub_total: 2070, discount: 70, total_amount: 2360, gst_amount: 360, add_tax_amount: 0, nonreg_tax_amount: 0, gst_rate: 18, add_tax_rate: 0, nonreg_rate: 0,
     items: [{ name: 'Biscuit 50g', price: 10, qty: 120, ctn: 5, pcs: 0 }, { name: 'Candy Mix', price: 5, qty: 30, ctn: 0, pcs: 30 }, { name: 'Soap Large', price: 60, qty: 12, ctn: 1, pcs: 0 }] };
 }
 function previewCfg(cfg){
   let c = Object.assign({}, DEFAULT_INV_CFG, cfg);
-  openInvoiceWindow(wrapInvoiceDoc(buildInvoicePage(sampleBill(), c, { name: 'Ali Store', area: 'Gulshan' }, { name: 'Ahmed' }), c, false));
+  openInvoiceWindow(wrapInvoiceDoc(buildInvoicePage(sampleBill(), c, { name: 'Ali Store', area: 'Gulshan', phone: '0300-1234567', ntn_cnic: '1234567-8', contact_person: 'Ali Khan' }, { name: 'Ahmed' }), c, false));
 }
 function previewFormat(id){
   let f = DATA.invoice_formats.find(x => String(x.id) === String(id));
@@ -882,12 +886,18 @@ function renderFormatsView(v){
   }).join('') || '<div class="card p-8 text-center text-slate-400">Abhi koi format save nahi hua. Upar se naya banayein.</div>';
   v.innerHTML =
     '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">' + (EDIT_FMT_ID ? 'Edit Invoice Format' : 'New Invoice Format') + '</h3>' +
+      '<div class="flex flex-wrap gap-2 mb-3 items-center"><span class="text-[11px] font-bold text-slate-500">Ready Templates:</span><button onclick="loadFormatTemplate(\'am\')" class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold">📋 AM Traders (photo wali invoice)</button><button onclick="loadFormatTemplate(\'grid\')" class="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-xs font-semibold">📋 Grid Template (khali)</button></div>' +
       '<input id="fmtName" class="input mb-3" data-nocap placeholder="Format Name (e.g. Classic Blue) *" value="' + esc(FMT_FORM.name) + '" oninput="FMT_FORM.name=this.value">' +
       '<div class="grid md:grid-cols-4 gap-3 mb-3">' +
-        '<div><label class="text-[11px] font-bold text-slate-500">Layout</label>' + sel('layout', [['classic', 'Classic (Centered)'], ['modern', 'Modern (Colour Band)'], ['compact', 'Compact (Dense)'], ['thermal', 'Thermal Receipt (80mm)']]) + '</div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Layout</label>' + sel('layout', [['classic', 'Classic (Centered)'], ['modern', 'Modern (Colour Band)'], ['compact', 'Compact (Dense)'], ['thermal', 'Thermal Receipt (80mm)'], ['grid', 'Grid (Shop Invoice: SCH / DISC% / ADV T%)']]) + '</div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Paper</label>' + sel('paper', [['A4', 'A4'], ['A5', 'A5'], ['thermal80', 'Thermal 80mm']]) + '</div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Accent Colour</label><input type="color" class="input mt-1 !p-1 h-[42px]" value="' + esc(f.accent || '#0f172a') + '" oninput="FMT_FORM.cfg.accent=this.value"></div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Font Size (px)</label><input type="number" min="9" max="20" class="input mt-1" value="' + esc(f.fontSize || 13) + '" oninput="FMT_FORM.cfg.fontSize=Number(this.value)||13"></div>' +
+      '</div>' +
+      '<div class="grid md:grid-cols-4 gap-3 mb-3">' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Khali rows (Grid, kam az kam kitni rows)</label><input type="number" min="0" max="40" class="input mt-1" value="' + esc(f.minRows || 0) + '" oninput="FMT_FORM.cfg.minRows=Number(this.value)||0"></div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Date ka format</label>' + sel('dateFormat', [['locale', 'Browser ke mutabiq'], ['mdy2', '11/19/26 (mm/dd/yy)'], ['dmy', '19/11/2026 (dd/mm/yyyy)']]) + '</div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">Extra row ka label (Grid)</label><input class="input mt-1" data-nocap value="' + esc(f.extraLabel || '') + '" placeholder="khali = auto" oninput="FMT_FORM.cfg.extraLabel=this.value"></div>' +
       '</div>' +
       '<div class="grid md:grid-cols-3 gap-3 mb-3">' + inputs + '</div>' +
       '<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">' + flags + '</div>' +
@@ -938,6 +948,111 @@ async function delFormat(id){
 function companyListHtml(){
   let set = [...new Set(DATA.items.map(i => (i.company || '').trim()).filter(Boolean))].sort();
   return '<datalist id="companyList">' + set.map(c => '<option value="' + esc(c) + '"></option>').join('') + '</datalist>';
+}
+
+// ==================== GRID INVOICE (AM Trader's jaisi shop invoice) ====================
+const TAX_EXTRA_KEYS = ['gst_amount', 'add_tax_amount', 'nonreg_tax_amount', 'gst_rate', 'add_tax_rate', 'nonreg_rate'];
+const TAX_EXTRA_RE = /gst_amount|add_tax_amount|nonreg_tax_amount|gst_rate|add_tax_rate|nonreg_rate/i;
+function round2(n){ return Math.round(Number(n || 0) * 100) / 100; }
+
+function fmtBillDate(b, mode){
+  let d = parseTs(b.created_at);
+  if(isNaN(d)) return '';
+  if(mode === 'mdy2') return pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()) + '/' + String(d.getFullYear()).slice(2);
+  if(mode === 'dmy') return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+  return d.toLocaleDateString();
+}
+
+// Bill ke taxes: naye bills mein save hote hain, purane bills mein customer ke rates se nikalte hain
+function billTaxes(b, cust){
+  let items = parseBillItems(b);
+  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+  let disc = Number(b.discount || 0);
+  let total = Number(b.total_amount || 0);
+  let taxable = sub - disc;
+  let r = { sub: sub, disc: disc, taxable: taxable, total: total, gst: 0, add: 0, nonreg: 0, gstRate: 0, addRate: 0, nonregRate: 0, other: 0 };
+  if(b.gst_amount != null || b.add_tax_amount != null || b.nonreg_tax_amount != null){
+    r.gst = Number(b.gst_amount || 0); r.add = Number(b.add_tax_amount || 0); r.nonreg = Number(b.nonreg_tax_amount || 0);
+    r.gstRate = Number(b.gst_rate || 0); r.addRate = Number(b.add_tax_rate || 0); r.nonregRate = Number(b.nonreg_rate || 0);
+    return r;
+  }
+  let diff = round2(total - taxable);
+  if(diff <= 0.5) return r;
+  if(b.bill_type === 'tax' && cust){
+    let isReg = cust.is_registered === true || String(cust.is_registered) === 'true';
+    let gr = Number(cust.gst_rate != null ? cust.gst_rate : 18), ar = Number(cust.add_tax_rate != null ? cust.add_tax_rate : 3), nr = Number(cust.non_reg_tax_rate != null ? cust.non_reg_tax_rate : 0.25);
+    let g = taxable * gr / 100, a = taxable * ar / 100, n = isReg ? 0 : taxable * nr / 100;
+    if(Math.abs(g + a + n - diff) < 1){ r.gst = g; r.add = a; r.nonreg = n; r.gstRate = gr; r.addRate = ar; r.nonregRate = isReg ? 0 : nr; return r; }
+  }
+  r.other = diff;
+  return r;
+}
+
+function buildGridInvoicePage(b, cfg, cust, sal){
+  let items = parseBillItems(b);
+  let tx = billTaxes(b, cust);
+  let dPct = tx.sub > 0 ? tx.disc / tx.sub * 100 : 0;
+  let advRate = cfg.showAdvTax ? (tx.nonregRate || (tx.taxable > 0 && tx.nonreg > 0 ? tx.nonreg / tx.taxable * 100 : 0)) : 0;
+  let f2 = n => Number(n || 0).toFixed(2);
+  let f0 = n => String(Math.round(Number(n || 0)));
+  let fp = n => String(Math.round(Number(n || 0) * 100) / 100);
+  let rows = items.map(i => {
+    let q = Number(i.qty || 0), pr = Number(i.price || 0);
+    let amt = q * pr, base = amt * (1 - dPct / 100), adv = base * advRate / 100;
+    return { name: i.name, qty: cfg.showCtn ? qtyText(i) : String(q), sch: Number(i.sch || 0), price: pr, amt: amt, adv: adv, net: base + adv };
+  });
+  let sumAmt = rows.reduce((s, r) => s + r.amt, 0), sumAdv = rows.reduce((s, r) => s + r.adv, 0), sumNet = rows.reduce((s, r) => s + r.net, 0);
+  let extra = tx.gst + tx.add + tx.other + (cfg.showAdvTax ? 0 : tx.nonreg);
+  let payable = Number(b.total_amount || 0);
+
+  let left = (cfg.showSr ? 1 : 0) + 1 + 1 + (cfg.showScheme ? 1 : 0) + 1 + (cfg.showLineDisc ? 1 : 0);   // AMOUNT se pehle ke columns
+  let thead = '<tr>' + (cfg.showSr ? '<th>S No.</th>' : '') + '<th style="text-align:left">Description</th><th>Qty</th>' + (cfg.showScheme ? '<th>SCH</th>' : '') + '<th>N Price</th>' + (cfg.showLineDisc ? '<th>DISC%</th>' : '') + '<th>AMOUNT</th>' + (cfg.showAdvTax ? '<th class="box">ADV T%</th><th class="box">VALUE</th>' : '') + '<th>NET AMOUNT</th></tr>';
+  let total = Math.max(rows.length, Number(cfg.minRows) || 0);
+  let body = '';
+  for(let k = 0; k < total; k++){
+    let r = rows[k];
+    body += '<tr>' + (cfg.showSr ? '<td class="c">' + (k + 1) + '</td>' : '') +
+      '<td>' + (r ? esc(r.name) : '') + '</td><td class="c">' + (r ? esc(r.qty) : '') + '</td>' +
+      (cfg.showScheme ? '<td class="c">' + (r ? r.sch : '') + '</td>' : '') +
+      '<td class="c">' + (r ? fp(r.price) : '') + '</td>' +
+      (cfg.showLineDisc ? '<td class="c">' + (r ? fp(dPct) : '') + '</td>' : '') +
+      '<td class="r">' + (r ? f2(r.amt) : '') + '</td>' +
+      (cfg.showAdvTax ? '<td class="c">' + (r ? advRate.toFixed(1) : '') + '</td><td class="c">' + (r ? f0(r.adv) : '') + '</td>' : '') +
+      '<td class="r">' + (r ? f2(r.net) : '') + '</td></tr>';
+  }
+  let advCols = cfg.showAdvTax ? 2 : 0;
+  let extraLabel = cfg.extraLabel || (extra > 0.5 ? 'GST / ADD. TAX' : '');
+  body += '<tr class="tot"><td colspan="' + left + '" class="c">TOTAL</td><td class="r">' + f0(sumAmt) + '</td>' + (cfg.showAdvTax ? '<td></td><td class="c">' + f0(sumAdv) + '</td>' : '') + '<td class="r">' + f0(sumNet) + '</td></tr>';
+  body += '<tr class="tot"><td colspan="' + left + '" class="c">' + esc(extraLabel) + '</td><td></td>' + (cfg.showAdvTax ? '<td></td><td></td>' : '') + '<td class="r">' + f0(extra) + '</td></tr>';
+  body += '<tr class="tot"><td colspan="' + (left + 1 + advCols) + '" class="c">PAYABLE AMOUNT</td><td class="r">' + f0(payable) + '</td></tr>';
+
+  let line = [String(cfg.address || '').replace(/\.\s*$/, ''), (cfg.ntn || cfg.strn) ? 'NTN/STRN # ' + [cfg.ntn, cfg.strn].filter(Boolean).join(' /') : '', cfg.phone ? 'CELL # ' + cfg.phone : ''].filter(Boolean).map(esc).join('. ');
+  let metaRows = [
+    ['DATE:', esc(fmtBillDate(b, cfg.dateFormat))],
+    ['SHOP NAME:', esc(cust ? cust.name : 'Walk-in Customer')],
+    ['Area:', esc(cust && cust.area ? cust.area : '')],
+    ['NTN/STRN/CNIC #', esc(cust && cust.ntn_cnic ? cust.ntn_cnic : '')],
+    ['person Name:', esc(cust && cust.contact_person ? cust.contact_person : '')],
+    ['Contact No:', esc(cust && cust.phone ? cust.phone : '')]
+  ];
+  if(cfg.showSalesman) metaRows.push(['Booker:', esc(sal ? sal.name : '')]);
+  let meta = '<table class="gm">' + metaRows.map((m, idx) => '<tr><td class="gl">' + m[0] + '</td><td class="gv">' + m[1] + '</td>' + (idx === 0 ? '<td class="gi" rowspan="' + metaRows.length + '"><div class="gil">INVOICE NO:</div><div class="gin">' + esc(b.invoice_no) + '</div></td>' : '') + '</tr>').join('') + '</table>';
+  let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + ((cfg.sign1 || cfg.sign2) ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
+  return '<div class="inv"><div class="gh"><h2>' + esc(cfg.company) + '</h2><p>' + line + '</p></div>' + meta + '<table class="gt"><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + foot + '</div>';
+}
+
+// ---------- Ready templates (Super Admin) ----------
+const FMT_TEMPLATES = {
+  am: { name: 'AM Traders (Grid)', cfg: { layout: 'grid', paper: 'A4', accent: '#000000', fontSize: 11, company: "AM TRADER'S", tagline: '', address: 'KHYBAN E SIR SYED SECTOR 1 RWP.', phone: '03005252509', ntn: '5586080-5', strn: '3277876219398', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } },
+  grid: { name: 'Grid Template (Khali)', cfg: { layout: 'grid', paper: 'A4', accent: '#000000', fontSize: 11, company: 'YOUR COMPANY', tagline: '', address: '', phone: '', ntn: '', strn: '', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } }
+};
+function loadFormatTemplate(key){
+  let t = FMT_TEMPLATES[key];
+  if(!t) return;
+  EDIT_FMT_ID = null;
+  FMT_FORM = { name: t.name, cfg: Object.assign({}, DEFAULT_INV_CFG, JSON.parse(JSON.stringify(t.cfg))) };
+  renderView();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ==================== AUTO CAPITAL (pehla letter) ====================
@@ -1843,6 +1958,10 @@ function renderView(){
         '<input id="cArea" class="input" placeholder="Area">'+
         '<select id="cRegistered" class="input"><option value="false">Unregistered</option><option value="true">Registered</option></select>'+
       '</div>'+
+      '<div class="grid md:grid-cols-2 gap-3 mb-3">'+
+        '<input id="cNtn" class="input" data-nocap placeholder="NTN / STRN / CNIC (invoice par aayega)">'+
+        '<input id="cPerson" class="input" placeholder="Contact Person Name">'+
+      '</div>'+
       '<div class="grid md:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl">'+
         '<div><label class="text-[11px] font-bold text-slate-500">Default Bill Type</label><select id="cBillType" class="input mt-1"><option value="simple">Simple Bill</option><option value="tax">Tax Invoice</option></select></div>'+
         '<div><label class="text-[11px] font-bold text-slate-500">GST Rate (%)</label><input id="cGstRate" type="number" class="input mt-1" value="18"></div>'+
@@ -2573,11 +2692,20 @@ async function saveFinalBillInner(salesmanId, totals){
   let payload = {
     user_id: uid, customer_id: totals.custId, salesman_id: salesmanId, invoice_no: invNo,
     total_amount: totals.grandTotal, bill_type: totals.billType, items: JSON.stringify(itemsToSave),
-    sub_total: totals.subTotal, discount: totals.discountAmount, discount_type: totals.discountType, discount_value: totals.discountValue
+    sub_total: totals.subTotal, discount: totals.discountAmount, discount_type: totals.discountType, discount_value: totals.discountValue,
+    gst_amount: totals.gstAmount, add_tax_amount: totals.addTaxAmount, nonreg_tax_amount: totals.nonRegTaxAmount,
+    gst_rate: totals.billType === 'tax' ? Number(document.getElementById('gstRate')?.value || 0) : 0,
+    add_tax_rate: totals.billType === 'tax' ? Number(document.getElementById('addTaxRate')?.value || 0) : 0,
+    nonreg_rate: totals.nonRegTaxAmount > 0 ? Number(document.getElementById('nonRegTaxRate')?.value || 0) : 0
   };
   if(!oldBill) payload.is_finalized = !pendingNow;
 
-  let res = oldBill ? await supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : await supa.from('bills').insert([payload]);
+  let doSave = () => oldBill ? supa.from('bills').update(payload).eq('id', EDIT_BILL_ID) : supa.from('bills').insert([payload]);
+  let res = await doSave();
+  if(res.error && TAX_EXTRA_RE.test(res.error.message)){
+    TAX_EXTRA_KEYS.forEach(k => { delete payload[k]; });
+    res = await doSave();
+  }
   if(res.error){
     if(/is_finalized|finalized_at|sub_total|discount/i.test(res.error.message)){
       alert('Pehle Supabase mein naya SQL (orders_formats.sql) chalayein, phir bill dobara save karein.\n\n(' + res.error.message + ')');
@@ -2687,6 +2815,8 @@ function editCust(id){
   document.getElementById('cName').value = c.name || '';
   document.getElementById('cPhone').value = c.phone || '';
   document.getElementById('cArea').value = c.area || '';
+  document.getElementById('cNtn').value = c.ntn_cnic || '';
+  document.getElementById('cPerson').value = c.contact_person || '';
   document.getElementById('cRegistered').value = (c.is_registered === true || String(c.is_registered) === 'true') ? 'true' : 'false';
   document.getElementById('cBillType').value = c.default_bill_type || 'simple';
   document.getElementById('cGstRate').value = c.gst_rate !== undefined ? c.gst_rate : 18;
@@ -2700,7 +2830,7 @@ function editCust(id){
 
 function cancelCust(){
   EDIT_CUST_ID = null;
-  ['cName', 'cPhone', 'cArea'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
+  ['cName', 'cPhone', 'cArea', 'cNtn', 'cPerson'].forEach(i => { if(document.getElementById(i)) document.getElementById(i).value = ''; });
   if(document.getElementById('cRegistered')) document.getElementById('cRegistered').value = 'false';
   if(document.getElementById('cBillType')) document.getElementById('cBillType').value = 'simple';
   if(document.getElementById('cGstRate')) document.getElementById('cGstRate').value = '18';
@@ -2731,13 +2861,17 @@ async function saveCustomer(){
     add_tax_rate: addR,
     non_reg_tax_rate: nonR
   };
-  if(EDIT_CUST_ID){
-    let { error } = await supa.from('customers').update(payload).eq('id', EDIT_CUST_ID);
-    if(error){ alert(error.message); return; }
-    cancelCust(); loadAll(); return;
+  // NTN / Contact Person: sirf tab bhejein jab likha ho (ya pehle se save ho), taake SQL se pehle bhi customer save ho sake
+  let ntnVal = (document.getElementById('cNtn').value || '').trim(), perVal = (document.getElementById('cPerson').value || '').trim();
+  let oldC = EDIT_CUST_ID ? DATA.customers.find(x => String(x.id) === String(EDIT_CUST_ID)) : null;
+  if(ntnVal || (oldC && oldC.ntn_cnic)) payload.ntn_cnic = ntnVal;
+  if(perVal || (oldC && oldC.contact_person)) payload.contact_person = perVal;
+  let cres = EDIT_CUST_ID ? await supa.from('customers').update(payload).eq('id', EDIT_CUST_ID) : await supa.from('customers').insert([payload]);
+  if(cres.error){
+    if(/ntn_cnic|contact_person/i.test(cres.error.message)) alert('NTN / Contact Person save karne ke liye pehle Supabase mein naya SQL (invoice_extras.sql) chalayein.');
+    else alert(cres.error.message);
+    return;
   }
-  let { error } = await supa.from('customers').insert([payload]);
-  if(error){ alert(error.message); return; }
   cancelCust(); loadAll();
 }
 
