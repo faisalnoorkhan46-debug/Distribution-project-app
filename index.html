@@ -154,9 +154,9 @@ function getAvailableStock(itemId){
   let base = Number(it ? it.current_stock : 0) || 0;
   if(EDIT_BILL_ID){
     let b = DATA.bills.find(x => String(x.id) === String(EDIT_BILL_ID));
-    parseBillItems(b).filter(i => i.sd && String(i.id) === String(itemId)).forEach(i => base += Number(i.qty || 0));
+    parseBillItems(b).filter(i => i.sd && String(i.id) === String(itemId)).forEach(i => base += Number(i.qty || 0) + Number(i.sch || 0));
   }
-  SALE_ITEMS.filter(i => String(i.id) === String(itemId)).forEach(i => base -= Number(i.qty || 0));
+  SALE_ITEMS.filter(i => String(i.id) === String(itemId)).forEach(i => base -= Number(i.qty || 0) + Number(i.sch || 0));
   return base;
 }
 function getSaleItemSel(){
@@ -184,8 +184,8 @@ function updateSaleQtyTotal(){
 }
 async function applyStockChanges(oldItems, newItems){
   let delta = {};
-  (oldItems || []).filter(i => i.sd).forEach(i => { delta[i.id] = (delta[i.id] || 0) + Number(i.qty || 0); });
-  (newItems || []).forEach(i => { delta[i.id] = (delta[i.id] || 0) - Number(i.qty || 0); });
+  (oldItems || []).filter(i => i.sd).forEach(i => { delta[i.id] = (delta[i.id] || 0) + Number(i.qty || 0) + Number(i.sch || 0); });
+  (newItems || []).forEach(i => { delta[i.id] = (delta[i.id] || 0) - Number(i.qty || 0) - Number(i.sch || 0); });
   for(let id in delta){
     if(!delta[id]) continue;
     let { data: cur } = await supa.from('items').select('current_stock').eq('id', id).single();
@@ -298,9 +298,10 @@ function getItemReportData(list){
   let agg = {};
   used.forEach(b => parseBillItems(b).forEach(i => {
     let k = String(i.id);
-    if(!agg[k]) agg[k] = { id: i.id, name: i.name, pcs: 0, amt: 0 };
+    if(!agg[k]) agg[k] = { id: i.id, name: i.name, pcs: 0, sch: 0, amt: 0 };
     agg[k].pcs += Number(i.qty || 0);
-    agg[k].amt += Number(i.price || 0) * Number(i.qty || 0);
+    agg[k].sch += Number(i.sch || 0);
+    agg[k].amt += lineNet(i);
   }));
   let totalPcs = 0, totalAmt = 0, totalCtn = 0;
   let rows = Object.values(agg).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(r => {
@@ -309,7 +310,7 @@ function getItemReportData(list){
     let ctn = per > 1 ? Math.floor(r.pcs / per) : 0;
     let rem = per > 1 ? r.pcs - ctn * per : r.pcs;
     totalPcs += r.pcs; totalAmt += r.amt; totalCtn += ctn;
-    return { name: r.name, per: per, ctn: ctn, rem: rem, pcs: r.pcs, amt: r.amt };
+    return { name: r.name, per: per, ctn: ctn, rem: rem, pcs: r.pcs, sch: r.sch, amt: r.amt };
   });
   let label = selIds.length ? (selIds.length + ' selected invoice(s)') : ('Sab ' + list.length + ' invoice(s) (koi select nahi kiya)');
   let invNos = (selIds.length && selIds.length <= 15) ? used.map(b => b.invoice_no).join(', ') : '';
@@ -321,9 +322,9 @@ function pdfItemReport(){
   let cust = REP.cust ? DATA.customers.find(c => String(c.id) === String(REP.cust)) : null;
   let sub = d.label + (cust ? '   |   Customer: ' + cust.name : '') + periodText() + (d.invNos ? '   |   Invoices: ' + d.invNos : '');
   openPdf('Invoice-wise Item Report (Ctn / Pcs)', sub,
-    ['Item', 'Ctn Size', 'Ctn', 'Pcs', 'Total Pcs', 'Amount (Rs)'],
-    d.rows.map(r => [r.name, r.per > 1 ? r.per : '-', r.ctn, r.rem, r.pcs, Math.round(r.amt).toLocaleString()]),
-    ['TOTAL', '', d.totalCtn, '', d.totalPcs, Math.round(d.totalAmt).toLocaleString()], [1, 2, 3, 4, 5]);
+    ['Item', 'Ctn Size', 'Ctn', 'Pcs', 'Total Pcs', 'SCH (Free)', 'Amount (Rs)'],
+    d.rows.map(r => [r.name, r.per > 1 ? r.per : '-', r.ctn, r.rem, r.pcs, r.sch, Math.round(r.amt).toLocaleString()]),
+    ['TOTAL', '', d.totalCtn, '', d.totalPcs, d.rows.reduce((t, r) => t + r.sch, 0), Math.round(d.totalAmt).toLocaleString()], [1, 2, 3, 4, 5, 6]);
 }
 
 function getCustomerSaleData(){
@@ -723,7 +724,7 @@ async function finalizeSelectedOrders(){
   if(!bills.length) return;
   // stock check
   let need = {};
-  bills.forEach(b => parseBillItems(b).forEach(i => { need[i.id] = (need[i.id] || 0) + Number(i.qty || 0); }));
+  bills.forEach(b => parseBillItems(b).forEach(i => { need[i.id] = (need[i.id] || 0) + Number(i.qty || 0) + Number(i.sch || 0); }));
   let short = [];
   Object.keys(need).forEach(id => {
     let it = DATA.items.find(x => String(x.id) === String(id));
@@ -755,7 +756,7 @@ const DEFAULT_INV_CFG = {
   company: 'QNH ENTERPRISES', tagline: 'Distribution System', address: '', phone: '', ntn: '', strn: '',
   title: 'INVOICE', footer: '', terms: '', sign1: 'Received By', sign2: 'Authorized Signature',
   showSr: true, showCtn: true, showRate: true, showSalesman: true, showArea: true, showTime: true, showDiscount: true,
-  showScheme: false, showLineDisc: false, showAdvTax: false, minRows: 0, dateFormat: 'locale', extraLabel: ''
+  showScheme: false, showLineDisc: false, showAdvTax: false, minRows: 0, dateFormat: 'locale', extraLabel: '', autoA4: true, a5MaxItems: 10
 };
 let INV_CFG = Object.assign({}, DEFAULT_INV_CFG), INV_CFG_LOADED = false, INV_FORMATS_OK = false;
 
@@ -769,7 +770,8 @@ async function loadInvoiceFormat(){
 
 function invoiceCss(cfg){
   let a = cfg.accent || '#0f172a', fs = Number(cfg.fontSize) || 13, L = cfg.layout;
-  let paper = (L === 'thermal' || cfg.paper === 'thermal80') ? '@page{size:80mm auto;margin:3mm}' : (cfg.paper === 'A5' ? '@page{size:A5;margin:10mm}' : '@page{size:A4;margin:12mm}');
+  let paper = (L === 'thermal' || cfg.paper === 'thermal80') ? '@page{size:80mm auto;margin:3mm}' : (cfg.paper === 'A5' ? '@page{size:A5;margin:8mm}' : '@page{size:A4;margin:12mm}');
+  if(L !== 'thermal' && cfg.paper === 'A5' && cfg.autoA4 !== false) paper += '@page a5{size:A5;margin:8mm}@page a4{size:A4;margin:12mm}.inv.pg5{page:a5}.inv.pg4{page:a4}';
   let th = L === 'thermal';
   let base = 'body{font-family:' + (th ? "'Courier New',monospace" : 'Arial,Helvetica,sans-serif') + ';color:#222;margin:0;padding:' + (th ? '4px' : '18px') + ';font-size:' + fs + 'px}' +
     '.inv{page-break-after:always;' + (th ? 'width:72mm;margin:0 auto' : '') + '}.inv:last-child{page-break-after:auto}' +
@@ -782,7 +784,7 @@ function invoiceCss(cfg){
   let lay;
   if(L === 'modern') lay = '.hd{background:' + a + ';color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:6px}.hd h2{margin:0;font-size:' + (fs + 7) + 'px}.hd p{margin:2px 0;opacity:.85;font-size:' + (fs - 2) + 'px}.ttl{font-size:' + (fs + 9) + 'px;font-weight:bold;letter-spacing:3px}th{background:' + a + ';color:#fff}td{border-bottom:1px solid #e5e7eb}tbody tr:nth-child(even){background:#f8fafc}';
   else if(L === 'compact') lay = '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ' + a + ';padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 4) + 'px}.hd p{margin:1px 0;color:#555;font-size:' + (fs - 2) + 'px}.ttl{font-weight:bold;color:' + a + ';text-align:right}th{background:#eee;border:1px solid #ccc}td{border:1px solid #ddd}';
-  else if(L === 'grid') lay = '.gh{text-align:center;margin-bottom:6px}.gh h2{margin:0;font-size:' + (fs + 9) + 'px;letter-spacing:.5px}.gh p{margin:2px 0;font-size:' + (fs - 1) + 'px}.gm{width:100%;border-collapse:collapse;margin:6px 0 4px}.gm td{padding:2px 4px;font-size:' + fs + 'px;vertical-align:top}.gl{font-weight:600;white-space:nowrap;width:24%}.gv{width:46%}.gi{text-align:center;vertical-align:top}.gil{font-weight:600;text-decoration:underline}.gin{font-size:' + (fs + 3) + 'px;font-weight:bold;text-decoration:underline;margin-top:4px}.gt{width:100%;border-collapse:collapse;margin:6px 0}.gt th,.gt td{border:1px solid #000;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:600;text-align:center}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt th.box{border:2px solid #000}.gt tr.tot td{font-weight:600}';
+  else if(L === 'grid') lay = '.gtop{width:100%;border-collapse:collapse;margin:0}.gtop>tbody>tr>td{vertical-align:top;padding:0}.gname{font-size:' + (fs + 14) + 'px;font-weight:bold;letter-spacing:.5px;line-height:1.1}.gadr{font-size:' + (fs - 1) + 'px;color:#333;margin-top:4px;line-height:1.5}.gsep{color:#aaa;padding:0 7px}.gbx{width:36%}.gbox{width:100%;border-collapse:collapse;margin:0;border:1px solid #c9c9c9}.gbox td{padding:0}.gbt{text-align:center;font-weight:bold;letter-spacing:4px;font-size:' + (fs - 1) + 'px;padding:5px 0 !important;border-bottom:1px solid #c9c9c9}.gbl{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.5px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.gbv{text-align:right;font-weight:bold;font-size:' + (fs + 3) + 'px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.grule{border-top:1.5px solid #a8a8a8;margin:10px 0 9px}.gc{width:100%;border-collapse:collapse;margin:0}.gc td{border:1px solid #c9c9c9;padding:6px 9px;font-size:' + fs + 'px;height:18px}.gc td.l{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.4px;width:16%;white-space:nowrap}.gc td.v{font-weight:600;width:34%}.gt{width:100%;border-collapse:collapse;margin:10px 0 4px}.gt th,.gt td{border:1px solid #c9c9c9;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:bold;text-align:center;white-space:nowrap;font-size:' + (fs - 2) + 'px;letter-spacing:.3px}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt tr.tot td{font-weight:bold}';
   else if(th) lay = '.hd{text-align:center;border-bottom:1px dashed #000;padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 3) + 'px}.hd p{margin:1px 0;font-size:' + (fs - 2) + 'px}.ttl{text-align:center;font-weight:bold;margin:4px 0}th,td{padding:2px;border-bottom:1px dashed #999}th{border-top:1px dashed #000}';
   else lay = '.hd{text-align:center;margin-bottom:8px}.hd h2{margin:0;font-size:' + (fs + 9) + 'px}.hd p{margin:2px 0;color:#555}.ttl{text-align:center;font-weight:bold;letter-spacing:2px;border-top:2px solid ' + a + ';border-bottom:2px solid ' + a + ';padding:4px 0;margin:8px 0}th{background:#f2f2f2}th,td{border:1px solid #ddd}';
   return paper + base + lay;
@@ -791,7 +793,7 @@ function invoiceCss(cfg){
 function buildInvoicePage(b, cfg, cust, sal){
   if(cfg.layout === 'grid') return buildGridInvoicePage(b, cfg, cust, sal);
   let items = parseBillItems(b);
-  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + lineNet(i), 0);
   let disc = Number(b.discount || 0);
   let total = Number(b.total_amount || 0);
   let tax = Math.round((total - (sub - disc)) * 100) / 100;
@@ -803,8 +805,9 @@ function buildInvoicePage(b, cfg, cust, sal){
   else head = '<div class="hd"><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div>';
   let metaL = '<p><b>Invoice No:</b> ' + esc(b.invoice_no) + '</p><p><b>Customer:</b> ' + esc(cust ? cust.name : 'Walk-in Customer') + (cfg.showArea && cust && cust.area ? ' (' + esc(cust.area) + ')' : '') + '</p>' + (cfg.showSalesman ? '<p><b>Booker:</b> ' + esc(sal ? sal.name : '-') + '</p>' : '');
   let metaR = '<p><b>Date:</b> ' + fmtBillDate(b, cfg.dateFormat) + '</p>' + (cfg.showTime ? '<p><b>Time:</b> ' + billTime(b) + '</p>' : '') + '<p><b>Type:</b> ' + esc((b.bill_type || 'simple').toUpperCase()) + '</p>';
-  let thead = '<tr>' + (cfg.showSr ? '<th class="c">#</th>' : '') + '<th>Item</th>' + (cfg.showRate ? '<th class="r">Rate</th>' : '') + '<th class="c">Qty</th><th class="r">Amount</th></tr>';
-  let body = items.map((i, idx) => '<tr>' + (cfg.showSr ? '<td class="c">' + (idx + 1) + '</td>' : '') + '<td>' + esc(i.name) + '</td>' + (cfg.showRate ? '<td class="r">' + Number(i.price || 0).toLocaleString() + '</td>' : '') + '<td class="c">' + (cfg.showCtn ? esc(qtyText(i)) : Number(i.qty || 0)) + '</td><td class="r">' + Math.round(Number(i.price || 0) * Number(i.qty || 0)).toLocaleString() + '</td></tr>').join('');
+  let hasDisc = items.some(i => Number(i.disc || 0) > 0), hasSch = items.some(i => Number(i.sch || 0) > 0);
+  let thead = '<tr>' + (cfg.showSr ? '<th class="c">#</th>' : '') + '<th>Item</th>' + (cfg.showRate ? '<th class="r">Rate</th>' : '') + '<th class="c">Qty</th>' + (hasSch ? '<th class="c">SCH</th>' : '') + (hasDisc ? '<th class="c">Disc%</th>' : '') + '<th class="r">Amount</th></tr>';
+  let body = items.map((i, idx) => '<tr>' + (cfg.showSr ? '<td class="c">' + (idx + 1) + '</td>' : '') + '<td>' + esc(i.name) + '</td>' + (cfg.showRate ? '<td class="r">' + Number(i.price || 0).toLocaleString() + '</td>' : '') + '<td class="c">' + (cfg.showCtn ? esc(qtyText(i)) : Number(i.qty || 0)) + '</td>' + (hasSch ? '<td class="c">' + Number(i.sch || 0) + '</td>' : '') + (hasDisc ? '<td class="c">' + (Math.round(Number(i.disc || 0) * 100) / 100) + '</td>' : '') + '<td class="r">' + Math.round(lineNet(i)).toLocaleString() + '</td></tr>').join('');
   let showLines = cfg.showDiscount && (disc > 0 || tax > 0.5);
   let totals = '<div class="tot">' +
     (showLines ? '<div><span>Sub Total</span><span>Rs ' + Math.round(sub).toLocaleString() + '</span></div>' : '') +
@@ -812,7 +815,7 @@ function buildInvoicePage(b, cfg, cust, sal){
     (cfg.showDiscount && tax > 0.5 ? '<div><span>Tax</span><span>Rs ' + Math.round(tax).toLocaleString() + '</span></div>' : '') +
     '<div class="g"><span>Grand Total</span><span>Rs ' + Math.round(total).toLocaleString() + '</span></div></div>';
   let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + ((L !== 'thermal' && (cfg.sign1 || cfg.sign2)) ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
-  return '<div class="inv">' + head + '<div class="meta"><div>' + metaL + '</div><div>' + metaR + '</div></div><table><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + totals + foot + '</div>';
+  return '<div class="inv' + invPageClass(cfg, items.length) + '">' + head + '<div class="meta"><div>' + metaL + '</div><div>' + metaR + '</div></div><table><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + totals + foot + '</div>';
 }
 function wrapInvoiceDoc(pagesHtml, cfg, doPrint){
   return '<html><head><meta charset="utf-8"><title>Invoice</title><style>' + invoiceCss(cfg) + '</style></head><body>' + pagesHtml + (doPrint ? '<script>window.onload=function(){window.print();}<\/script>' : '') + '</body></html>';
@@ -850,14 +853,14 @@ const FMT_FLAGS = [
   { k: 'showSr', label: 'Serial No (#) column' }, { k: 'showCtn', label: 'Qty mein Ctn + Pcs' }, { k: 'showRate', label: 'Rate column' },
   { k: 'showSalesman', label: 'Booker ka naam' }, { k: 'showArea', label: 'Customer ka Area' }, { k: 'showTime', label: 'Order ka Time' },
   { k: 'showDiscount', label: 'Discount / Tax lines' },
-  { k: 'showScheme', label: '(Grid) SCH column' }, { k: 'showLineDisc', label: '(Grid) DISC% column' }, { k: 'showAdvTax', label: '(Grid) ADV T% + VALUE' }
+  { k: 'showScheme', label: '(Grid) SCH column' }, { k: 'showLineDisc', label: '(Grid) DISC% column' }, { k: 'showAdvTax', label: '(Grid) ADV T% + VALUE' }, { k: 'autoA4', label: 'A5 par items zyada hon to A4 par print' }
 ];
 let FMT_FORM = { name: '', cfg: Object.assign({}, DEFAULT_INV_CFG) };
 let EDIT_FMT_ID = null;
 
 function sampleBill(){
-  return { invoice_no: 'INV-1001', created_at: new Date().toISOString(), bill_type: 'tax', sub_total: 2070, discount: 70, total_amount: 2360, gst_amount: 360, add_tax_amount: 0, nonreg_tax_amount: 0, gst_rate: 18, add_tax_rate: 0, nonreg_rate: 0,
-    items: [{ name: 'Biscuit 50g', price: 10, qty: 120, ctn: 5, pcs: 0 }, { name: 'Candy Mix', price: 5, qty: 30, ctn: 0, pcs: 30 }, { name: 'Soap Large', price: 60, qty: 12, ctn: 1, pcs: 0 }] };
+  return { invoice_no: 'INV-1001', created_at: new Date().toISOString(), bill_type: 'tax', sub_total: 2055, discount: 55, total_amount: 2360, gst_amount: 360, add_tax_amount: 0, nonreg_tax_amount: 0, gst_rate: 18, add_tax_rate: 0, nonreg_rate: 0,
+    items: [{ name: 'Biscuit 50g', price: 10, qty: 120, ctn: 5, pcs: 0, sch: 12, disc: 0 }, { name: 'Candy Mix', price: 5, qty: 30, ctn: 0, pcs: 30, sch: 0, disc: 10 }, { name: 'Soap Large', price: 60, qty: 12, ctn: 1, pcs: 0, sch: 0, disc: 0 }] };
 }
 function previewCfg(cfg){
   let c = Object.assign({}, DEFAULT_INV_CFG, cfg);
@@ -898,6 +901,7 @@ function renderFormatsView(v){
         '<div><label class="text-[11px] font-bold text-slate-500">Khali rows (Grid, kam az kam kitni rows)</label><input type="number" min="0" max="40" class="input mt-1" value="' + esc(f.minRows || 0) + '" oninput="FMT_FORM.cfg.minRows=Number(this.value)||0"></div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Date ka format</label>' + sel('dateFormat', [['locale', 'Browser ke mutabiq'], ['mdy2', '11/19/26 (mm/dd/yy)'], ['dmy', '19/11/2026 (dd/mm/yyyy)']]) + '</div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Extra row ka label (Grid)</label><input class="input mt-1" data-nocap value="' + esc(f.extraLabel || '') + '" placeholder="khali = auto" oninput="FMT_FORM.cfg.extraLabel=this.value"></div>' +
+        '<div><label class="text-[11px] font-bold text-slate-500">A5 par kam az kam kitni items (isse zyada = A4)</label><input type="number" min="1" max="60" class="input mt-1" value="' + esc(f.a5MaxItems || 10) + '" oninput="FMT_FORM.cfg.a5MaxItems=Number(this.value)||10"></div>' +
       '</div>' +
       '<div class="grid md:grid-cols-3 gap-3 mb-3">' + inputs + '</div>' +
       '<div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">' + flags + '</div>' +
@@ -966,7 +970,7 @@ function fmtBillDate(b, mode){
 // Bill ke taxes: naye bills mein save hote hain, purane bills mein customer ke rates se nikalte hain
 function billTaxes(b, cust){
   let items = parseBillItems(b);
-  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+  let sub = Number(b.sub_total || 0) > 0 ? Number(b.sub_total) : items.reduce((s, i) => s + lineNet(i), 0);
   let disc = Number(b.discount || 0);
   let total = Number(b.total_amount || 0);
   let taxable = sub - disc;
@@ -988,34 +992,43 @@ function billTaxes(b, cust){
   return r;
 }
 
+function lineNet(i){ return Number(i.price || 0) * Number(i.qty || 0) * (1 - Number(i.disc || 0) / 100); }
+function invPageClass(cfg, n){
+  if(cfg.layout === 'thermal' || cfg.paper !== 'A5' || cfg.autoA4 === false) return '';
+  return n > (Number(cfg.a5MaxItems) || 10) ? ' pg4' : ' pg5';
+}
+
 function buildGridInvoicePage(b, cfg, cust, sal){
   let items = parseBillItems(b);
   let tx = billTaxes(b, cust);
-  let dPct = tx.sub > 0 ? tx.disc / tx.sub * 100 : 0;
+  // poore invoice ke discount ka hissa har line par barabar lagta hai
+  let invPct = tx.sub > 0 ? tx.disc / tx.sub * 100 : 0;
   let advRate = cfg.showAdvTax ? (tx.nonregRate || (tx.taxable > 0 && tx.nonreg > 0 ? tx.nonreg / tx.taxable * 100 : 0)) : 0;
   let f2 = n => Number(n || 0).toFixed(2);
   let f0 = n => String(Math.round(Number(n || 0)));
   let fp = n => String(Math.round(Number(n || 0) * 100) / 100);
   let rows = items.map(i => {
-    let q = Number(i.qty || 0), pr = Number(i.price || 0);
-    let amt = q * pr, base = amt * (1 - dPct / 100), adv = base * advRate / 100;
-    return { name: i.name, qty: cfg.showCtn ? qtyText(i) : String(q), sch: Number(i.sch || 0), price: pr, amt: amt, adv: adv, net: base + adv };
+    let q = Number(i.qty || 0), pr = Number(i.price || 0), ld = Number(i.disc || 0);
+    let amt = q * pr;
+    let eff = 100 * (1 - (1 - ld / 100) * (1 - invPct / 100));
+    let base = amt * (1 - eff / 100), adv = base * advRate / 100;
+    return { name: i.name, qty: cfg.showCtn ? qtyText(i) : String(q), sch: Number(i.sch || 0), price: pr, amt: amt, eff: eff, adv: adv, net: base + adv };
   });
   let sumAmt = rows.reduce((s, r) => s + r.amt, 0), sumAdv = rows.reduce((s, r) => s + r.adv, 0), sumNet = rows.reduce((s, r) => s + r.net, 0);
   let extra = tx.gst + tx.add + tx.other + (cfg.showAdvTax ? 0 : tx.nonreg);
   let payable = Number(b.total_amount || 0);
 
-  let left = (cfg.showSr ? 1 : 0) + 1 + 1 + (cfg.showScheme ? 1 : 0) + 1 + (cfg.showLineDisc ? 1 : 0);   // AMOUNT se pehle ke columns
-  let thead = '<tr>' + (cfg.showSr ? '<th>S No.</th>' : '') + '<th style="text-align:left">Description</th><th>Qty</th>' + (cfg.showScheme ? '<th>SCH</th>' : '') + '<th>N Price</th>' + (cfg.showLineDisc ? '<th>DISC%</th>' : '') + '<th>AMOUNT</th>' + (cfg.showAdvTax ? '<th class="box">ADV T%</th><th class="box">VALUE</th>' : '') + '<th>NET AMOUNT</th></tr>';
+  let left = (cfg.showSr ? 1 : 0) + 1 + 1 + (cfg.showScheme ? 1 : 0) + 1 + (cfg.showLineDisc ? 1 : 0);
+  let thead = '<tr>' + (cfg.showSr ? '<th>S No.</th>' : '') + '<th style="text-align:left">Description</th><th>Qty</th>' + (cfg.showScheme ? '<th>SCH</th>' : '') + '<th>N Price</th>' + (cfg.showLineDisc ? '<th>DISC%</th>' : '') + '<th>AMOUNT</th>' + (cfg.showAdvTax ? '<th>ADV T%</th><th>VALUE</th>' : '') + '<th>NET AMOUNT</th></tr>';
   let total = Math.max(rows.length, Number(cfg.minRows) || 0);
   let body = '';
   for(let k = 0; k < total; k++){
     let r = rows[k];
-    body += '<tr>' + (cfg.showSr ? '<td class="c">' + (k + 1) + '</td>' : '') +
+    body += '<tr>' + (cfg.showSr ? '<td class="c">' + (r ? (k + 1) : '') + '</td>' : '') +
       '<td>' + (r ? esc(r.name) : '') + '</td><td class="c">' + (r ? esc(r.qty) : '') + '</td>' +
       (cfg.showScheme ? '<td class="c">' + (r ? r.sch : '') + '</td>' : '') +
       '<td class="c">' + (r ? fp(r.price) : '') + '</td>' +
-      (cfg.showLineDisc ? '<td class="c">' + (r ? fp(dPct) : '') + '</td>' : '') +
+      (cfg.showLineDisc ? '<td class="c">' + (r ? fp(r.eff) : '') + '</td>' : '') +
       '<td class="r">' + (r ? f2(r.amt) : '') + '</td>' +
       (cfg.showAdvTax ? '<td class="c">' + (r ? advRate.toFixed(1) : '') + '</td><td class="c">' + (r ? f0(r.adv) : '') + '</td>' : '') +
       '<td class="r">' + (r ? f2(r.net) : '') + '</td></tr>';
@@ -1026,25 +1039,31 @@ function buildGridInvoicePage(b, cfg, cust, sal){
   body += '<tr class="tot"><td colspan="' + left + '" class="c">' + esc(extraLabel) + '</td><td></td>' + (cfg.showAdvTax ? '<td></td><td></td>' : '') + '<td class="r">' + f0(extra) + '</td></tr>';
   body += '<tr class="tot"><td colspan="' + (left + 1 + advCols) + '" class="c">PAYABLE AMOUNT</td><td class="r">' + f0(payable) + '</td></tr>';
 
-  let line = [String(cfg.address || '').replace(/\.\s*$/, ''), (cfg.ntn || cfg.strn) ? 'NTN/STRN # ' + [cfg.ntn, cfg.strn].filter(Boolean).join(' /') : '', cfg.phone ? 'CELL # ' + cfg.phone : ''].filter(Boolean).map(esc).join('. ');
-  let metaRows = [
-    ['DATE:', esc(fmtBillDate(b, cfg.dateFormat))],
-    ['SHOP NAME:', esc(cust ? cust.name : 'Walk-in Customer')],
-    ['Area:', esc(cust && cust.area ? cust.area : '')],
-    ['NTN/STRN/CNIC #', esc(cust && cust.ntn_cnic ? cust.ntn_cnic : '')],
-    ['person Name:', esc(cust && cust.contact_person ? cust.contact_person : '')],
-    ['Contact No:', esc(cust && cust.phone ? cust.phone : '')]
-  ];
-  if(cfg.showSalesman) metaRows.push(['Booker:', esc(sal ? sal.name : '')]);
-  let meta = '<table class="gm">' + metaRows.map((m, idx) => '<tr><td class="gl">' + m[0] + '</td><td class="gv">' + m[1] + '</td>' + (idx === 0 ? '<td class="gi" rowspan="' + metaRows.length + '"><div class="gil">INVOICE NO:</div><div class="gin">' + esc(b.invoice_no) + '</div></td>' : '') + '</tr>').join('') + '</table>';
+  // ---- Header: left par naam aur details, right par invoice box
+  let idLine = [cfg.ntn ? '<b>NTN:</b> ' + esc(cfg.ntn) : '', cfg.strn ? '<b>STRN:</b> ' + esc(cfg.strn) : '', cfg.phone ? '<b>Cell:</b> ' + esc(cfg.phone) : ''].filter(Boolean).join('<span class="gsep">|</span>');
+  let head = '<table class="gtop"><tr><td class="gco"><div class="gname">' + esc(cfg.company) + '</div>' +
+    (cfg.tagline ? '<div class="gadr">' + esc(cfg.tagline) + '</div>' : '') +
+    (cfg.address ? '<div class="gadr">' + esc(String(cfg.address).replace(/\.\s*$/, '')) + '</div>' : '') +
+    (idLine ? '<div class="gadr">' + idLine + '</div>' : '') + '</td>' +
+    '<td class="gbx"><table class="gbox"><tr><td colspan="2" class="gbt">INVOICE</td></tr>' +
+    '<tr><td class="gbl">INVOICE NO.</td><td class="gbv">' + esc(b.invoice_no) + '</td></tr>' +
+    '<tr><td class="gbl">DATE</td><td class="gbv">' + esc(fmtBillDate(b, cfg.dateFormat)) + '</td></tr></table></td></tr></table><div class="grule"></div>';
+
+  // ---- Customer ki grid
+  let cl = (t, v) => '<td class="l">' + t + '</td><td class="v">' + v + '</td>';
+  let custGrid = '<table class="gc">' +
+    '<tr>' + cl('SHOP NAME', esc(cust ? cust.name : 'Walk-in Customer')) + cl('AREA', esc(cust && cust.area ? cust.area : '')) + '</tr>' +
+    '<tr>' + cl('PERSON NAME', esc(cust && cust.contact_person ? cust.contact_person : '')) + cl('CONTACT NO.', esc(cust && cust.phone ? cust.phone : '')) + '</tr>' +
+    '<tr>' + cl('NTN / STRN / CNIC #', esc(cust && cust.ntn_cnic ? cust.ntn_cnic : '')) + (cfg.showSalesman ? cl('BOOKER', esc(sal ? sal.name : '')) : '<td class="l"></td><td class="v"></td>') + '</tr></table>';
+
   let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + ((cfg.sign1 || cfg.sign2) ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
-  return '<div class="inv"><div class="gh"><h2>' + esc(cfg.company) + '</h2><p>' + line + '</p></div>' + meta + '<table class="gt"><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + foot + '</div>';
+  return '<div class="inv' + invPageClass(cfg, items.length) + '">' + head + custGrid + '<table class="gt"><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + foot + '</div>';
 }
 
 // ---------- Ready templates (Super Admin) ----------
 const FMT_TEMPLATES = {
-  am: { name: 'AM Traders (Grid)', cfg: { layout: 'grid', paper: 'A4', accent: '#000000', fontSize: 11, company: "AM TRADER'S", tagline: '', address: 'KHYBAN E SIR SYED SECTOR 1 RWP.', phone: '03005252509', ntn: '5586080-5', strn: '3277876219398', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } },
-  grid: { name: 'Grid Template (Khali)', cfg: { layout: 'grid', paper: 'A4', accent: '#000000', fontSize: 11, company: 'YOUR COMPANY', tagline: '', address: '', phone: '', ntn: '', strn: '', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } }
+  am: { name: 'AM Traders (Grid)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: "AM TRADER'S", tagline: '', address: 'KHYBAN E SIR SYED SECTOR 1 RWP.', phone: '03005252509', ntn: '5586080-5', strn: '3277876219398', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } },
+  grid: { name: 'Grid Template (Khali)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: 'YOUR COMPANY', tagline: '', address: '', phone: '', ntn: '', strn: '', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } }
 };
 function loadFormatTemplate(key){
   let t = FMT_TEMPLATES[key];
@@ -2109,14 +2128,14 @@ function renderView(){
   if(curTab==='sale'){
     let custOptions = DATA.customers.map(c => {
       let isReg = c.is_registered === true || String(c.is_registered) === 'true';
-      return '<option value="'+c.id+'">'+c.name+' '+(isReg ? '(Registered)' : '(Unregistered)')+'</option>';
+      return '<option value="'+c.id+'">'+esc(c.name)+(c.area ? ' — '+esc(c.area) : '')+'</option>';
     }).join('');
     
     let salesmanOptions = buildSalesmanOptions();
 
     let itemOptions = DATA.items.map(i => '<option value="'+i.id+'">'+i.name+(i.company ? ' - '+i.company : '')+'</option>').join('');
     let saleRows = SALE_ITEMS.map((item, idx) => 
-      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+qtyText(item)+'</td><td class="p-3 font-bold">Rs '+(item.price * item.qty).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
+      '<tr class="border-b"><td class="p-3 font-semibold">'+item.name+'</td><td class="p-3">Rs '+item.price+'</td><td class="p-3">'+qtyText(item)+'</td><td class="p-3">'+(Number(item.sch||0))+'</td><td class="p-3">'+(Number(item.disc||0))+'%</td><td class="p-3 font-bold">Rs '+Math.round(lineNet(item)).toLocaleString()+'</td><td class="p-3 text-center"><button onclick="removeSaleItem('+idx+')" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">✕</button></td></tr>'
     ).join('');
     let editNotice = EDIT_BILL_ID ? '<div class="bg-amber-100 border border-amber-300 text-amber-800 p-2.5 rounded-xl text-xs flex justify-between items-center mb-3"><span><b>Editing Bill Mode:</b> Invoice load ho gayi hai, zaroori changes karke Update karein.</span><button onclick="cancelBillEdit()" class="text-red-600 font-bold underline">Cancel Edit</button></div>' : '';
 
@@ -2135,13 +2154,17 @@ function renderView(){
             '<div><label class="text-xs font-semibold text-slate-500">Pcs</label><input id="salePcs" type="number" min="0" class="input mt-1" placeholder="0" oninput="updateSaleQtyTotal()"></div>'+
           '</div>'+
           '<div id="saleQtyTotal" class="text-xs text-slate-500">Total Qty: 0 Pcs</div>'+
+          '<div class="grid grid-cols-2 gap-2">'+
+            '<div><label class="text-xs font-semibold text-slate-500">SCH (Free Pcs)</label><input id="saleSch" type="number" min="0" class="input mt-1" placeholder="0"></div>'+
+            '<div><label class="text-xs font-semibold text-slate-500">Disc % (is item par)</label><input id="saleDisc" type="number" min="0" max="100" step="0.01" class="input mt-1" placeholder="0"></div>'+
+          '</div>'+
           '<button onclick="addItemToSale()" class="btn-dark mt-2">+ Add to Bill</button>'+
         '</div>'+
       '</div>'+
       '<div class="card p-5 md:col-span-2 flex flex-col justify-between">'+
         '<div>'+
           '<h3 class="font-bold text-lg border-b pb-2 mb-4">Items in Bill ('+SALE_ITEMS.length+')</h3>'+
-          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Price</th><th class="p-3">Qty</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(saleRows || '<tr><td colspan="5" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
+          '<div class="overflow-auto max-h-[280px]"><table class="w-full text-sm"><thead class="bg-slate-900 text-white text-[11px]"><tr><th class="p-3 text-left">Item Name</th><th class="p-3">Price</th><th class="p-3">Qty</th><th class="p-3">SCH</th><th class="p-3">Disc%</th><th class="p-3">Total</th><th class="p-3 text-center">Action</th></tr></thead><tbody>'+(saleRows || '<tr><td colspan="7" class="p-8 text-center text-slate-400">Abhi koi item add nahi hua</td></tr>')+'</tbody></table></div>'+
         '</div>'+
         '<div class="border-t pt-4 mt-6 bg-slate-50 p-4 rounded-xl space-y-2 text-sm">'+
           '<div class="flex justify-between text-slate-600"><span>Sub Total:</span><b id="lblSubTotal">Rs 0</b></div>'+
@@ -2466,6 +2489,9 @@ function addItemToSale(){
   let price = Number(document.getElementById('salePrice') ? document.getElementById('salePrice').value : 0);
   let ctn = Number(document.getElementById('saleCtn') ? document.getElementById('saleCtn').value : 0) || 0;
   let pcs = Number(document.getElementById('salePcs') ? document.getElementById('salePcs').value : 0) || 0;
+  let sch = Math.max(0, Math.floor(Number(document.getElementById('saleSch') ? document.getElementById('saleSch').value : 0) || 0));
+  let disc = Number(document.getElementById('saleDisc') ? document.getElementById('saleDisc').value : 0) || 0;
+  if(disc < 0 || disc > 100) return alert('Disc % 0 se 100 ke beech likhein!');
   if(!itemId) return alert('Kripya Item select karein!');
   let it = DATA.items.find(x => String(x.id) === String(itemId));
   if(!it) return alert('Selected Item nahi mila!');
@@ -2476,8 +2502,8 @@ function addItemToSale(){
   if(qty <= 0) return alert('Ctn ya Pcs mein quantity likhein!');
   if(per > 1){ ctn = Math.floor(qty / per); pcs = qty - ctn * per; }
   let avail = getAvailableStock(it.id);
-  if(qty > avail && !confirm('⚠️ Stock kam hai!\nAvailable: ' + fmtCtnPcs(avail, per) + '\nAap ' + qty + ' Pcs add kar rahe hain. Phir bhi add karein?')) return;
-  SALE_ITEMS.push({ id: it.id, name: it.name, price: price, qty: qty, ctn: ctn, pcs: pcs, ctn_pcs: per });
+  if((qty + sch) > avail && !confirm('⚠️ Stock kam hai!\nAvailable: ' + fmtCtnPcs(avail, per) + '\nAap ' + (qty + sch) + ' Pcs (SCH samet) add kar rahe hain. Phir bhi add karein?')) return;
+  SALE_ITEMS.push({ id: it.id, name: it.name, price: price, qty: qty, ctn: ctn, pcs: pcs, ctn_pcs: per, sch: sch, disc: disc });
   renderView();
   if (document.getElementById('saleCust') && curCust) {
     document.getElementById('saleCust').value = curCust;
@@ -2582,7 +2608,7 @@ async function saveFinalPurchase(){
 }
 
 function calculateSaleTotals(){
-  let subTotal = SALE_ITEMS.reduce((sum, item) => sum + (Number(item.price) * Number(item.qty)), 0);
+  let subTotal = SALE_ITEMS.reduce((sum, item) => sum + lineNet(item), 0);
   let billTypeEl = document.getElementById('saleBillType');
   let custEl = document.getElementById('saleCust');
   if(!billTypeEl || !custEl) return;
