@@ -784,7 +784,7 @@ function invoiceCss(cfg){
   let lay;
   if(L === 'modern') lay = '.hd{background:' + a + ';color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:6px}.hd h2{margin:0;font-size:' + (fs + 7) + 'px}.hd p{margin:2px 0;opacity:.85;font-size:' + (fs - 2) + 'px}.ttl{font-size:' + (fs + 9) + 'px;font-weight:bold;letter-spacing:3px}th{background:' + a + ';color:#fff}td{border-bottom:1px solid #e5e7eb}tbody tr:nth-child(even){background:#f8fafc}';
   else if(L === 'compact') lay = '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ' + a + ';padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 4) + 'px}.hd p{margin:1px 0;color:#555;font-size:' + (fs - 2) + 'px}.ttl{font-weight:bold;color:' + a + ';text-align:right}th{background:#eee;border:1px solid #ccc}td{border:1px solid #ddd}';
-  else if(L === 'grid') lay = '.gtop{width:100%;border-collapse:collapse;margin:0}.gtop>tbody>tr>td{vertical-align:top;padding:0}.gname{font-size:' + (fs + 14) + 'px;font-weight:bold;letter-spacing:.5px;line-height:1.1}.gadr{font-size:' + (fs - 1) + 'px;color:#333;margin-top:4px;line-height:1.5}.gsep{color:#aaa;padding:0 7px}.gbx{width:36%}.gbox{width:100%;border-collapse:collapse;margin:0;border:1px solid #c9c9c9}.gbox td{padding:0}.gbt{text-align:center;font-weight:bold;letter-spacing:4px;font-size:' + (fs - 1) + 'px;padding:5px 0 !important;border-bottom:1px solid #c9c9c9}.gbl{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.5px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.gbv{text-align:right;font-weight:bold;font-size:' + (fs + 3) + 'px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.grule{border-top:1.5px solid #a8a8a8;margin:10px 0 9px}.gc{width:100%;border-collapse:collapse;margin:0}.gc td{border:1px solid #c9c9c9;padding:6px 9px;font-size:' + fs + 'px;height:18px}.gc td.l{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.4px;width:16%;white-space:nowrap}.gc td.v{font-weight:600;width:34%}.gt{width:100%;border-collapse:collapse;margin:10px 0 4px}.gt th,.gt td{border:1px solid #c9c9c9;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:bold;text-align:center;white-space:nowrap;font-size:' + (fs - 2) + 'px;letter-spacing:.3px}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt tr.tot td{font-weight:bold}';
+  else if(L === 'grid') lay = '.gtop{width:100%;border-collapse:collapse;margin:0}.gtop>tbody>tr>td{vertical-align:top;padding:0}.gname{font-size:' + (fs + 14) + 'px;font-weight:bold;letter-spacing:.5px;line-height:1.1}.gadr{font-size:' + (fs - 1) + 'px;color:#333;margin-top:4px;line-height:1.5}.gsep{color:#aaa;padding:0 7px}.gbx{width:36%}.gbox{width:100%;border-collapse:collapse;margin:0;border:1px solid #c9c9c9}.gbox td{padding:0}.gbt{text-align:center;font-weight:bold;letter-spacing:4px;font-size:' + (fs - 1) + 'px;padding:5px 0 !important;border-bottom:1px solid #c9c9c9}.gbl{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.5px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.gbv{text-align:right;font-weight:bold;font-size:' + (fs + 3) + 'px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.grule{border-top:1.5px solid #a8a8a8;margin:10px 0 9px}.gc{width:100%;border-collapse:collapse;margin:0}.gc td{border:1px solid #c9c9c9;padding:6px 9px;font-size:' + fs + 'px;height:18px}.gc td.l{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.4px;width:16%;white-space:nowrap}.gc td.v{font-weight:600;width:34%}.gt{width:100%;table-layout:fixed;border-collapse:collapse;margin:10px 0 4px}.gt th:first-child,.gt td:first-child{padding-left:2px;padding-right:2px}.gt th,.gt td{border:1px solid #c9c9c9;word-wrap:break-word;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:bold;text-align:center;white-space:nowrap;font-size:' + (fs - 2) + 'px;letter-spacing:.3px}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt tr.tot td{font-weight:bold}';
   else if(th) lay = '.hd{text-align:center;border-bottom:1px dashed #000;padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 3) + 'px}.hd p{margin:1px 0;font-size:' + (fs - 2) + 'px}.ttl{text-align:center;font-weight:bold;margin:4px 0}th,td{padding:2px;border-bottom:1px dashed #999}th{border-top:1px dashed #000}';
   else lay = '.hd{text-align:center;margin-bottom:8px}.hd h2{margin:0;font-size:' + (fs + 9) + 'px}.hd p{margin:2px 0;color:#555}.ttl{text-align:center;font-weight:bold;letter-spacing:2px;border-top:2px solid ' + a + ';border-bottom:2px solid ' + a + ';padding:4px 0;margin:8px 0}th{background:#f2f2f2}th,td{border:1px solid #ddd}';
   return paper + base + lay;
@@ -1012,7 +1012,7 @@ function buildGridInvoicePage(b, cfg, cust, sal){
     let amt = q * pr;
     let eff = 100 * (1 - (1 - ld / 100) * (1 - invPct / 100));
     let base = amt * (1 - eff / 100), adv = base * advRate / 100;
-    return { name: i.name, qty: cfg.showCtn ? qtyText(i) : String(q), sch: Number(i.sch || 0), price: pr, amt: amt, eff: eff, adv: adv, net: base + adv };
+    return { name: i.name, qty: String(q), sch: Number(i.sch || 0), price: pr, amt: amt, eff: eff, adv: adv, net: base + adv };
   });
   let sumAmt = rows.reduce((s, r) => s + r.amt, 0), sumAdv = rows.reduce((s, r) => s + r.adv, 0), sumNet = rows.reduce((s, r) => s + r.net, 0);
   let extra = tx.gst + tx.add + tx.other + (cfg.showAdvTax ? 0 : tx.nonreg);
@@ -1020,6 +1020,18 @@ function buildGridInvoicePage(b, cfg, cust, sal){
 
   let left = (cfg.showSr ? 1 : 0) + 1 + 1 + (cfg.showScheme ? 1 : 0) + 1 + (cfg.showLineDisc ? 1 : 0);
   let thead = '<tr>' + (cfg.showSr ? '<th>S No.</th>' : '') + '<th style="text-align:left">Description</th><th>Qty</th>' + (cfg.showScheme ? '<th>SCH</th>' : '') + '<th>N Price</th>' + (cfg.showLineDisc ? '<th>DISC%</th>' : '') + '<th>AMOUNT</th>' + (cfg.showAdvTax ? '<th>ADV T%</th><th>VALUE</th>' : '') + '<th>NET AMOUNT</th></tr>';
+  let wts = [];
+  if(cfg.showSr) wts.push(3.5);
+  wts.push(34);                       // Description: sab se bara
+  wts.push(6);                        // Qty
+  if(cfg.showScheme) wts.push(5);
+  wts.push(8);                        // N Price
+  if(cfg.showLineDisc) wts.push(7);
+  wts.push(11);                       // AMOUNT
+  if(cfg.showAdvTax) wts.push(6.5, 6.5);
+  wts.push(11.5);                     // NET AMOUNT
+  let wsum = wts.reduce((a, b) => a + b, 0);
+  let colgroup = '<colgroup>' + wts.map(w => '<col style="width:' + (w / wsum * 100).toFixed(2) + '%">').join('') + '</colgroup>';
   let total = Math.max(rows.length, Number(cfg.minRows) || 0);
   let body = '';
   for(let k = 0; k < total; k++){
@@ -1030,11 +1042,16 @@ function buildGridInvoicePage(b, cfg, cust, sal){
       '<td class="c">' + (r ? fp(r.price) : '') + '</td>' +
       (cfg.showLineDisc ? '<td class="c">' + (r ? fp(r.eff) : '') + '</td>' : '') +
       '<td class="r">' + (r ? f2(r.amt) : '') + '</td>' +
-      (cfg.showAdvTax ? '<td class="c">' + (r ? advRate.toFixed(1) : '') + '</td><td class="c">' + (r ? f0(r.adv) : '') + '</td>' : '') +
+      (cfg.showAdvTax ? '<td class="c">' + (r ? (advRate === 0 ? '0.0' : String(Math.round(advRate * 100) / 100)) : '') + '</td><td class="c">' + (r ? f0(r.adv) : '') + '</td>' : '') +
       '<td class="r">' + (r ? f2(r.net) : '') + '</td></tr>';
   }
   let advCols = cfg.showAdvTax ? 2 : 0;
-  let extraLabel = cfg.extraLabel || (extra > 0.5 ? 'GST / ADD. TAX' : '');
+  let taxParts = [];
+  if(tx.gst > 0.5) taxParts.push('GST' + (tx.gstRate > 0 ? ' ' + fp(tx.gstRate) + '%' : ''));
+  if(tx.add > 0.5) taxParts.push('ADD. TAX' + (tx.addRate > 0 ? ' ' + fp(tx.addRate) + '%' : ''));
+  if(tx.other > 0.5) taxParts.push('TAX');
+  if(!cfg.showAdvTax && tx.nonreg > 0.5) taxParts.push('ADV. TAX' + (tx.nonregRate > 0 ? ' ' + fp(tx.nonregRate) + '%' : ''));
+  let extraLabel = cfg.extraLabel || taxParts.join(' + ');
   body += '<tr class="tot"><td colspan="' + left + '" class="c">TOTAL</td><td class="r">' + f0(sumAmt) + '</td>' + (cfg.showAdvTax ? '<td></td><td class="c">' + f0(sumAdv) + '</td>' : '') + '<td class="r">' + f0(sumNet) + '</td></tr>';
   body += '<tr class="tot"><td colspan="' + left + '" class="c">' + esc(extraLabel) + '</td><td></td>' + (cfg.showAdvTax ? '<td></td><td></td>' : '') + '<td class="r">' + f0(extra) + '</td></tr>';
   body += '<tr class="tot"><td colspan="' + (left + 1 + advCols) + '" class="c">PAYABLE AMOUNT</td><td class="r">' + f0(payable) + '</td></tr>';
@@ -1045,7 +1062,7 @@ function buildGridInvoicePage(b, cfg, cust, sal){
     (cfg.tagline ? '<div class="gadr">' + esc(cfg.tagline) + '</div>' : '') +
     (cfg.address ? '<div class="gadr">' + esc(String(cfg.address).replace(/\.\s*$/, '')) + '</div>' : '') +
     (idLine ? '<div class="gadr">' + idLine + '</div>' : '') + '</td>' +
-    '<td class="gbx"><table class="gbox"><tr><td colspan="2" class="gbt">INVOICE</td></tr>' +
+    '<td class="gbx"><table class="gbox"><tr><td colspan="2" class="gbt">' + esc(cfg.title && cfg.title !== 'INVOICE' ? cfg.title : 'SALE INVOICE') + '</td></tr>' +
     '<tr><td class="gbl">INVOICE NO.</td><td class="gbv">' + esc(b.invoice_no) + '</td></tr>' +
     '<tr><td class="gbl">DATE</td><td class="gbv">' + esc(fmtBillDate(b, cfg.dateFormat)) + '</td></tr></table></td></tr></table><div class="grule"></div>';
 
@@ -1057,13 +1074,13 @@ function buildGridInvoicePage(b, cfg, cust, sal){
     '<tr>' + cl('NTN / STRN / CNIC #', esc(cust && cust.ntn_cnic ? cust.ntn_cnic : '')) + (cfg.showSalesman ? cl('BOOKER', esc(sal ? sal.name : '')) : '<td class="l"></td><td class="v"></td>') + '</tr></table>';
 
   let foot = (cfg.terms ? '<div class="foot"><b>Terms:</b> ' + esc(cfg.terms) + '</div>' : '') + (cfg.footer ? '<div class="foot" style="text-align:center">' + esc(cfg.footer) + '</div>' : '') + ((cfg.sign1 || cfg.sign2) ? '<div class="sign"><div>' + esc(cfg.sign1) + '</div><div>' + esc(cfg.sign2) + '</div></div>' : '');
-  return '<div class="inv' + invPageClass(cfg, items.length) + '">' + head + custGrid + '<table class="gt"><thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + foot + '</div>';
+  return '<div class="inv' + invPageClass(cfg, items.length) + '">' + head + custGrid + '<table class="gt">' + colgroup + '<thead>' + thead + '</thead><tbody>' + body + '</tbody></table>' + foot + '</div>';
 }
 
 // ---------- Ready templates (Super Admin) ----------
 const FMT_TEMPLATES = {
-  am: { name: 'AM Traders (Grid)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: "AM TRADER'S", tagline: '', address: 'KHYBAN E SIR SYED SECTOR 1 RWP.', phone: '03005252509', ntn: '5586080-5', strn: '3277876219398', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } },
-  grid: { name: 'Grid Template (Khali)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: 'YOUR COMPANY', tagline: '', address: '', phone: '', ntn: '', strn: '', title: '', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } }
+  am: { name: 'AM Traders (Grid)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: "AM TRADER'S", tagline: '', address: 'KHYBAN E SIR SYED SECTOR 1 RWP.', phone: '03005252509', ntn: '5586080-5', strn: '3277876219398', title: 'SALE INVOICE', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } },
+  grid: { name: 'Grid Template (Khali)', cfg: { layout: 'grid', paper: 'A5', autoA4: true, a5MaxItems: 10, accent: '#000000', fontSize: 11, company: 'YOUR COMPANY', tagline: '', address: '', phone: '', ntn: '', strn: '', title: 'SALE INVOICE', footer: '', terms: '', sign1: '', sign2: '', showSr: true, showCtn: false, showRate: true, showSalesman: false, showArea: true, showTime: false, showDiscount: true, showScheme: true, showLineDisc: true, showAdvTax: true, minRows: 10, dateFormat: 'mdy2', extraLabel: '' } }
 };
 function loadFormatTemplate(key){
   let t = FMT_TEMPLATES[key];
