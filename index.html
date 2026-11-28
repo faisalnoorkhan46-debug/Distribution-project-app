@@ -262,7 +262,7 @@ function printItemReport(){
   let el = document.getElementById('repItemTable');
   if(!el) return alert('Pehle "Show Item-wise Qty" dabayein.');
   let w = window.open('', '_blank', 'width=800,height=600');
-  w.document.write('<html><head><title>Item-wise Qty Report</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px;text-align:left}th{background:#f2f2f2}</style></head><body><h3>QNH ENTERPRISES - Item-wise Qty Report</h3>' + el.innerHTML + '<script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.write('<html><head><title>Item-wise Qty Report</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px;text-align:left}th{background:#f2f2f2}</style></head><body><h3>' + esc(brandName()) + ' - Item-wise Qty Report</h3>' + el.innerHTML + '<script>window.onload=function(){window.print();}<\/script></body></html>');
   w.document.close();
 }
 
@@ -273,7 +273,15 @@ function openPdf(title, subtitle, head, body, foot, rightCols){
   if(!window.jspdf || !window.jspdf.jsPDF) return alert('PDF library load nahi hui. Internet check kar ke page refresh (Ctrl+F5) karein.');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-  doc.setFontSize(15); doc.text('QNH ENTERPRISES', 40, 42);
+  let nameX = 40;
+  if(CURRENT_USER_ROLE !== 'super_admin' && INV_CFG.logo){
+    try {
+      let lh = Math.min(36, Number(INV_CFG.logoH) || 36), lw = (Number(INV_CFG.logoW) || lh) * lh / (Number(INV_CFG.logoH) || lh);
+      doc.addImage(INV_CFG.logo, /^data:image\/png/.test(INV_CFG.logo) ? 'PNG' : 'JPEG', 40, 20, lw, lh);
+      nameX = 40 + lw + 10;
+    } catch(e) { nameX = 40; }
+  }
+  doc.setFontSize(15); doc.text(brandName() || 'QNH ENTERPRISES', nameX, 42);
   doc.setFontSize(12); doc.text(String(title), 40, 62);
   doc.setFontSize(8.5); doc.setTextColor(100);
   doc.text(String(subtitle || '') + '   |   Generated: ' + new Date().toLocaleString(), 40, 78, { maxWidth: 515 });
@@ -784,7 +792,7 @@ function invoiceCss(cfg){
   let lay;
   if(L === 'modern') lay = '.hd{background:' + a + ';color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:6px}.hd h2{margin:0;font-size:' + (fs + 7) + 'px}.hd p{margin:2px 0;opacity:.85;font-size:' + (fs - 2) + 'px}.ttl{font-size:' + (fs + 9) + 'px;font-weight:bold;letter-spacing:3px}th{background:' + a + ';color:#fff}td{border-bottom:1px solid #e5e7eb}tbody tr:nth-child(even){background:#f8fafc}';
   else if(L === 'compact') lay = '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ' + a + ';padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 4) + 'px}.hd p{margin:1px 0;color:#555;font-size:' + (fs - 2) + 'px}.ttl{font-weight:bold;color:' + a + ';text-align:right}th{background:#eee;border:1px solid #ccc}td{border:1px solid #ddd}';
-  else if(L === 'grid') lay = '.gtop{width:100%;border-collapse:collapse;margin:0}.gtop>tbody>tr>td{vertical-align:top;padding:0}.gname{font-size:' + (fs + 14) + 'px;font-weight:bold;letter-spacing:.5px;line-height:1.1}.gadr{font-size:' + (fs - 1) + 'px;color:#333;margin-top:4px;line-height:1.5}.gsep{color:#aaa;padding:0 7px}.gbx{width:36%}.gbox{width:100%;border-collapse:collapse;margin:0;border:1px solid #c9c9c9}.gbox td{padding:0}.gbt{text-align:center;font-weight:bold;letter-spacing:4px;font-size:' + (fs - 1) + 'px;padding:5px 0 !important;border-bottom:1px solid #c9c9c9}.gbl{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.5px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.gbv{text-align:right;font-weight:bold;font-size:' + (fs + 3) + 'px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.grule{border-top:1.5px solid #a8a8a8;margin:10px 0 9px}.gc{width:100%;border-collapse:collapse;margin:0}.gc td{border:1px solid #c9c9c9;padding:6px 9px;font-size:' + fs + 'px;height:18px}.gc td.l{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.4px;width:16%;white-space:nowrap}.gc td.v{font-weight:600;width:34%}.gt{width:100%;table-layout:fixed;border-collapse:collapse;margin:10px 0 4px}.gt th:first-child,.gt td:first-child{padding-left:2px;padding-right:2px}.gt th,.gt td{border:1px solid #c9c9c9;word-wrap:break-word;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:bold;text-align:center;white-space:nowrap;font-size:' + (fs - 2) + 'px;letter-spacing:.3px}.gt td.c{text-align:center}.gt td.r{text-align:right}.gt tr.tot td{font-weight:bold}.gt td.b{font-weight:bold}.gt td.pay{font-weight:bold;font-size:' + (fs + 1) + 'px}';
+  else if(L === 'grid') lay = '.gtop{width:100%;border-collapse:collapse;margin:0}.gtop>tbody>tr>td{vertical-align:top;padding:0}.gname{font-size:' + (fs + 14) + 'px;font-weight:bold;letter-spacing:.5px;line-height:1.1}.gadr{font-size:' + (fs - 1) + 'px;color:#333;margin-top:4px;line-height:1.5}.gsep{color:#aaa;padding:0 7px}.gbx{width:36%}.gbox{width:100%;border-collapse:collapse;margin:0;border:1px solid #c9c9c9}.gbox td{padding:0}.gbt{text-align:center;font-weight:bold;letter-spacing:4px;font-size:' + (fs - 1) + 'px;padding:5px 0 !important;border-bottom:1px solid #c9c9c9}.gbl{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.5px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.gbv{text-align:right;font-weight:bold;font-size:' + (fs + 3) + 'px;padding:6px 9px !important;border-top:1px solid #dcdcdc}.grule{border-top:1.5px solid #a8a8a8;margin:10px 0 9px}.gc{width:100%;border-collapse:collapse;margin:0}.gc td{border:1px solid #c9c9c9;padding:6px 9px;font-size:' + fs + 'px;height:18px}.gc td.l{font-size:' + (fs - 3) + 'px;font-weight:bold;color:#555;letter-spacing:.4px;width:16%;white-space:nowrap}.gc td.v{font-weight:600;width:34%}.gt{width:100%;table-layout:fixed;border-collapse:collapse;margin:10px 0 4px}.gt th:first-child,.gt td:first-child{padding-left:2px;padding-right:2px}.gt th,.gt td{border:1px solid #c9c9c9;word-wrap:break-word;padding:4px 6px;font-size:' + (fs - 1) + 'px;height:22px}.gt th{font-weight:bold;text-align:center;white-space:nowrap;font-size:' + (fs - 2) + 'px;letter-spacing:.3px}.gt td.c{text-align:center}.gt td.r{text-align:right}.glg{border-collapse:collapse;margin:0;width:auto}.glg td{padding:0;vertical-align:middle}.glgi{padding-right:14px !important}.gt tr.tot td{font-weight:bold}.gt td.b{font-weight:bold}.gt td.pay{font-weight:bold;font-size:' + (fs + 1) + 'px}';
   else if(th) lay = '.hd{text-align:center;border-bottom:1px dashed #000;padding-bottom:6px}.hd h2{margin:0;font-size:' + (fs + 3) + 'px}.hd p{margin:1px 0;font-size:' + (fs - 2) + 'px}.ttl{text-align:center;font-weight:bold;margin:4px 0}th,td{padding:2px;border-bottom:1px dashed #999}th{border-top:1px dashed #000}';
   else lay = '.hd{text-align:center;margin-bottom:8px}.hd h2{margin:0;font-size:' + (fs + 9) + 'px}.hd p{margin:2px 0;color:#555}.ttl{text-align:center;font-weight:bold;letter-spacing:2px;border-top:2px solid ' + a + ';border-bottom:2px solid ' + a + ';padding:4px 0;margin:8px 0}th{background:#f2f2f2}th,td{border:1px solid #ddd}';
   return paper + base + lay;
@@ -799,10 +807,11 @@ function buildInvoicePage(b, cfg, cust, sal){
   let tax = Math.round((total - (sub - disc)) * 100) / 100;
   let L = cfg.layout;
   let contact = [cfg.address, cfg.phone ? 'Ph: ' + cfg.phone : '', cfg.ntn ? 'NTN: ' + cfg.ntn : '', cfg.strn ? 'STRN: ' + cfg.strn : ''].filter(Boolean).map(esc).join(' | ');
+  let lgImg = invLogoImg(cfg, L);
   let head;
-  if(L === 'modern') head = '<div class="hd"><div><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div></div>';
-  else if(L === 'compact') head = '<div class="hd"><div><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '<div style="font-weight:normal;color:#444">' + esc(b.invoice_no) + '</div></div></div>';
-  else head = '<div class="hd"><h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div>';
+  if(L === 'modern') head = '<div class="hd"><div>' + lgImg + '<h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div></div>';
+  else if(L === 'compact') head = '<div class="hd"><div>' + lgImg + '<h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '<div style="font-weight:normal;color:#444">' + esc(b.invoice_no) + '</div></div></div>';
+  else head = '<div class="hd">' + lgImg + '<h2>' + esc(cfg.company) + '</h2><p>' + esc(cfg.tagline) + '</p><p>' + contact + '</p></div><div class="ttl">' + esc(cfg.title) + '</div>';
   let metaL = '<p><b>Invoice No:</b> ' + esc(b.invoice_no) + '</p><p><b>Customer:</b> ' + esc(cust ? cust.name : 'Walk-in Customer') + (cfg.showArea && cust && cust.area ? ' (' + esc(cust.area) + ')' : '') + '</p>' + (cfg.showSalesman ? '<p><b>Booker:</b> ' + esc(sal ? sal.name : '-') + '</p>' : '');
   let metaR = '<p><b>Date:</b> ' + fmtBillDate(b, cfg.dateFormat) + '</p>' + (cfg.showTime ? '<p><b>Time:</b> ' + billTime(b) + '</p>' : '') + '<p><b>Type:</b> ' + esc((b.bill_type || 'simple').toUpperCase()) + '</p>';
   let hasDisc = items.some(i => Number(i.disc || 0) > 0), hasSch = items.some(i => Number(i.sch || 0) > 0);
@@ -891,6 +900,11 @@ function renderFormatsView(v){
     '<div class="card p-5 mb-6"><h3 class="font-bold mb-3">' + (EDIT_FMT_ID ? 'Edit Invoice Format' : 'New Invoice Format') + '</h3>' +
       '<div class="flex flex-wrap gap-2 mb-3 items-center"><span class="text-[11px] font-bold text-slate-500">Ready Templates:</span><button onclick="loadFormatTemplate(\'am\')" class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold">📋 AM Traders (photo wali invoice)</button><button onclick="loadFormatTemplate(\'grid\')" class="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-xs font-semibold">📋 Grid Template (khali)</button></div>' +
       '<input id="fmtName" class="input mb-3" data-nocap placeholder="Format Name (e.g. Classic Blue) *" value="' + esc(FMT_FORM.name) + '" oninput="FMT_FORM.name=this.value">' +
+      '<div class="flex flex-wrap items-center gap-3 mb-3 p-3 border rounded-xl bg-white"><div class="text-[11px] font-bold text-slate-500 w-24">Client ka Logo</div>' +
+        (f.logo ? '<img src="' + esc(f.logo) + '" alt="" style="max-height:48px;max-width:160px;object-fit:contain" class="border rounded p-1">' : '<span class="text-xs text-slate-400">Abhi koi logo nahi</span>') +
+        '<label class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold cursor-pointer">Logo Chunein<input type="file" accept="image/*" class="hidden" onchange="onLogoPick(this)"></label>' +
+        (f.logo ? '<button onclick="removeLogo()" class="px-3 py-1.5 border rounded-lg text-xs">Hatayein</button>' : '') +
+        '<span class="text-[11px] text-slate-400">PNG ya JPG. Badi image khud chhoti ho jati hai.</span></div>' +
       '<div class="grid md:grid-cols-4 gap-3 mb-3">' +
         '<div><label class="text-[11px] font-bold text-slate-500">Layout</label>' + sel('layout', [['classic', 'Classic (Centered)'], ['modern', 'Modern (Colour Band)'], ['compact', 'Compact (Dense)'], ['thermal', 'Thermal Receipt (80mm)'], ['grid', 'Grid (Shop Invoice: SCH / DISC% / ADV T%)']]) + '</div>' +
         '<div><label class="text-[11px] font-bold text-slate-500">Paper</label>' + sel('paper', [['A4', 'A4'], ['A5', 'A5'], ['thermal80', 'Thermal 80mm']]) + '</div>' +
@@ -1057,11 +1071,20 @@ function buildGridInvoicePage(b, cfg, cust, sal){
   body += '<tr class="tot"><td colspan="' + (left + 1 + advCols) + '" class="c">PAYABLE AMOUNT</td><td class="r pay">' + f0(payable) + '</td></tr>';
 
   // ---- Header: left par naam aur details, right par invoice box
-  let idLine = [cfg.ntn ? '<b>NTN:</b> ' + esc(cfg.ntn) : '', cfg.strn ? '<b>STRN:</b> ' + esc(cfg.strn) : '', cfg.phone ? '<b>Cell:</b> ' + esc(cfg.phone) : ''].filter(Boolean).join('<span class="gsep">|</span>');
-  let head = '<table class="gtop"><tr><td class="gco"><div class="gname">' + esc(cfg.company) + '</div>' +
+  let sepH = '<span class="gsep">|</span>';
+  let ids1 = [cfg.ntn ? '<b>NTN:</b> ' + esc(cfg.ntn) : '', cfg.strn ? '<b>STRN:</b> ' + esc(cfg.strn) : ''].filter(Boolean).join(sepH);
+  let cellH = cfg.phone ? '<b>Cell:</b> ' + esc(cfg.phone) : '';
+  // logo ho to Cell alag line mein (taake text logo ke neeche na gire), warna ek hi line
+  let idHtml = cfg.logo
+    ? (ids1 ? '<div class="gadr">' + ids1 + '</div>' : '') + (cellH ? '<div class="gadr">' + cellH + '</div>' : '')
+    : ([ids1, cellH].filter(Boolean).length ? '<div class="gadr">' + [ids1, cellH].filter(Boolean).join(sepH) + '</div>' : '');
+  let leftInner = '<div class="gname">' + esc(cfg.company) + '</div>' +
     (cfg.tagline ? '<div class="gadr">' + esc(cfg.tagline) + '</div>' : '') +
-    (cfg.address ? '<div class="gadr">' + esc(String(cfg.address).replace(/\.\s*$/, '')) + '</div>' : '') +
-    (idLine ? '<div class="gadr">' + idLine + '</div>' : '') + '</td>' +
+    (cfg.address ? '<div class="gadr">' + esc(String(cfg.address).replace(/\.\s*$/, '')) + '</div>' : '') + idHtml;
+  let leftCell = cfg.logo
+    ? '<table class="glg"><tr><td class="glgi"><img src="' + esc(cfg.logo) + '" alt="" style="display:block;max-height:70px;max-width:150px;object-fit:contain"></td><td class="glgt">' + leftInner + '</td></tr></table>'
+    : leftInner;
+  let head = '<table class="gtop"><tr><td class="gco">' + leftCell + '</td>' +
     '<td class="gbx"><table class="gbox"><tr><td colspan="2" class="gbt">' + esc(cfg.title && cfg.title !== 'INVOICE' ? cfg.title : 'SALE INVOICE') + '</td></tr>' +
     '<tr><td class="gbl">INVOICE NO.</td><td class="gbv">' + esc(b.invoice_no) + '</td></tr>' +
     '<tr><td class="gbl">DATE</td><td class="gbv">' + esc(fmtBillDate(b, cfg.dateFormat)) + '</td></tr></table></td></tr></table><div class="grule"></div>';
@@ -1089,6 +1112,75 @@ function loadFormatTemplate(key){
   FMT_FORM = { name: t.name, cfg: Object.assign({}, DEFAULT_INV_CFG, JSON.parse(JSON.stringify(t.cfg))) };
   renderView();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ==================== CLIENT KA NAAM AUR LOGO ====================
+function brandName(){
+  if(CURRENT_USER_ROLE === 'super_admin') return 'QNH ENTERPRISES';
+  return INV_CFG_LOADED ? (INV_CFG.company || 'QNH ENTERPRISES') : '';
+}
+function brandLogoHtml(){
+  if(CURRENT_USER_ROLE !== 'super_admin' && INV_CFG_LOADED && INV_CFG.logo)
+    return '<img src="' + esc(INV_CFG.logo) + '" alt="" style="max-height:46px;max-width:96px;object-fit:contain">';
+  let nm = brandName();
+  return '<div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">' + esc((nm || 'Q').charAt(0).toUpperCase()) + '</div>';
+}
+function renderBrand(){
+  let nm = brandName();
+  let a = document.getElementById('brandName'); if(a) a.innerText = nm;
+  let l = document.getElementById('brandLogo'); if(l) l.innerHTML = brandLogoHtml();
+  let h = document.getElementById('headerUser');
+  if(h){
+    if(CURRENT_USER_ROLE === 'super_admin') h.innerText = 'Platform Super Admin';
+    else if(LOGGED_IN_STAFF) h.innerText = (nm ? nm + ' | ' : '') + 'Staff (' + LOGGED_IN_STAFF.role + ')';
+    else h.innerText = nm;
+  }
+  if(nm) document.title = nm + ' - Distribution System';
+}
+
+// Invoice par logo
+function invLogoImg(cfg, L){
+  if(!cfg.logo) return '';
+  let mh = L === 'thermal' ? 48 : 60, mw = L === 'thermal' ? 220 : 180;
+  let center = (L === 'classic' || L === 'thermal');
+  let chip = L === 'modern' ? 'background:#fff;padding:3px;border-radius:4px;' : '';
+  return '<img src="' + esc(cfg.logo) + '" alt="" style="display:block;' + (center ? 'margin:0 auto 4px;' : 'margin:0 0 6px;') + chip + 'max-height:' + mh + 'px;max-width:' + mw + 'px;object-fit:contain">';
+}
+
+// Super Admin: logo upload (browser mein hi chhota ho jata hai)
+function onLogoPick(input){
+  let f = input.files && input.files[0];
+  input.value = '';
+  if(!f) return;
+  if(!/^image\//.test(f.type)) return alert('Sirf image (PNG ya JPG) chunein.');
+  if(f.size > 3 * 1024 * 1024) return alert('Image 3 MB se chhoti honi chahiye.');
+  let fr = new FileReader();
+  fr.onload = () => {
+    let img = new Image();
+    img.onload = () => {
+      let r = Math.min(1, 400 / img.width, 160 / img.height);
+      let w = Math.max(1, Math.round(img.width * r)), h = Math.max(1, Math.round(img.height * r));
+      let c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      let ctx = c.getContext('2d');
+      let png = /png|gif|webp|svg/i.test(f.type);
+      let draw = (whiteBg) => { ctx.clearRect(0, 0, w, h); if(whiteBg){ ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); } ctx.drawImage(img, 0, 0, w, h); };
+      draw(!png);
+      let url = png ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.85);
+      if(url.length > 300000){ draw(true); url = c.toDataURL('image/jpeg', 0.8); }
+      FMT_FORM.cfg.logo = url;
+      FMT_FORM.cfg.logoW = w;
+      FMT_FORM.cfg.logoH = h;
+      renderView();
+    };
+    img.onerror = () => alert('Ye image parhi nahi ja saki. Koi aur file chunein.');
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(f);
+}
+function removeLogo(){
+  delete FMT_FORM.cfg.logo; delete FMT_FORM.cfg.logoW; delete FMT_FORM.cfg.logoH;
+  renderView();
 }
 
 // ==================== AUTO CAPITAL (pehla letter) ====================
@@ -1190,6 +1282,7 @@ async function initAuth(){
 }
 
 function renderWelcomeScreen(){
+  document.title = 'QNH ENTERPRISES - Distribution & Admin Panel';
   document.getElementById('appContainer').innerHTML = `
     <div class="min-h-screen bg-slate-50 flex flex-col">
       <header class="flex justify-between items-center px-8 py-4 bg-white border-b">
@@ -1401,11 +1494,11 @@ async function handleLogout(){
 }
 
 function renderMainLayout(){
-  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : (LOGGED_IN_STAFF ? 'Staff (' + LOGGED_IN_STAFF.role + ')' : 'QNH System User');
+  let headerTitle = CURRENT_USER_ROLE === 'super_admin' ? 'Platform Super Admin' : (LOGGED_IN_STAFF ? 'Staff (' + LOGGED_IN_STAFF.role + ')' : '');
   document.getElementById('appContainer').innerHTML = `
     <div class="flex min-h-screen">
       <aside id="sidebar" class="w-[270px] bg-white border-r p-5 flex flex-col fixed md:static inset-y-0 left-0 z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
-        <div class="flex items-center gap-3 mb-6"><div class="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">Q</div><div><div class="font-bold">QNH ENTERPRISES</div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : (LOGGED_IN_STAFF ? LOGGED_IN_STAFF.role + ' Portal' : 'Distribution System')}</div></div></div>
+        <div class="flex items-center gap-3 mb-6"><div id="brandLogo" class="shrink-0"></div><div class="min-w-0"><div id="brandName" class="font-bold leading-tight break-words"></div><div class="text-[11px] text-slate-500">${CURRENT_USER_ROLE === 'super_admin' ? 'Super Admin Panel' : (LOGGED_IN_STAFF ? LOGGED_IN_STAFF.role + ' Portal' : 'Distribution System')}</div></div></div>
         <nav id="sideNav" class="space-y-1.5 flex-1 overflow-y-auto pr-1 max-h-[calc(100vh-180px)]"></nav>
         <div class="pt-4 border-t space-y-3">
           <button onclick="handleLogout()" class="w-full text-left px-3.5 py-2.5 rounded-xl flex gap-3 text-[14px] text-red-600 hover:bg-red-50 font-bold items-center"><span>🚪</span> Logout</button>
@@ -1416,7 +1509,7 @@ function renderMainLayout(){
         <header class="flex justify-between items-center mb-6">
           <div class="flex items-center gap-3"><button onclick="toggleMobileMenu()" class="md:hidden w-10 h-10 bg-white border rounded-xl">☰</button><h1 id="pageTitle" class="text-2xl font-bold">Dashboard</h1></div>
           <div class="flex items-center gap-4">
-            <span class="text-sm font-semibold text-slate-700">${headerTitle}</span>
+            <span id="headerUser" class="text-sm font-semibold text-slate-700">${headerTitle}</span>
             <button onclick="handleLogout()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800">Log out</button>
           </div>
         </header>
@@ -1426,6 +1519,7 @@ function renderMainLayout(){
     </div>
   `;
   renderSide();
+  renderBrand();
   let t0 = document.getElementById('pageTitle');
   if(t0) t0.innerText = TABS.find(x=>x.id===curTab)?.label || 'Dashboard';
 }
@@ -1513,6 +1607,7 @@ async function loadAll(){
     DATA.invoice_formats = fr.error ? [] : (fr.data || []);
   } else if(!INV_CFG_LOADED){
     await loadInvoiceFormat();
+    renderBrand();
   }
   if(LOGGED_IN_STAFF) refreshStaffTabs();
   renderSide();
